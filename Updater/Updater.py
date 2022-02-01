@@ -35,7 +35,7 @@ with requests.Session() as SESSION:
         Settings = {}
         SleepTime = 3600
         for row in conn.execute('SELECT * FROM Data'):
-            ID, ChatIDs, Link, Name, KnownWorks, LastCheck = row
+            ID, ChatIDs, Link, Name, KnownUploads, LastCheck = row
             LastCheck = datetime.strptime(LastCheck, '%Y/%m/%d %H:%M:%S')
 
             # Update Settings variable. (Every hour or so)
@@ -75,24 +75,24 @@ with requests.Session() as SESSION:
 
             PendingTransaction = False  # Using this for rollback in case of an exception
             try:
-                # For every work panel/div
+                # For every upload panel/div
                 for gallery_div in SOUP.find_all('div', 'gallery'):
                     # If is known, continue
-                    if gallery_div.find('a')['href'] in KnownWorks:
+                    if gallery_div.find('a')['href'] in KnownUploads:
                         continue
 
                     # Current div link, es: /g/000000
-                    WorkLink = gallery_div.find('a')['href']
+                    UploadLink = gallery_div.find('a')['href']
 
-                    # Work's link insertion in the database for duplication avoidance
-                    conn.execute(f'UPDATE Data SET KnownWorks = KnownWorks || ",{WorkLink}" WHERE ID == {ID};')
+                    # Upload's link insertion in the database for duplication avoidance
+                    conn.execute(f'UPDATE Data SET KnownUploads = KnownUploads || ",{UploadLink}" WHERE ID == {ID};')
                     PendingTransaction = True
 
                     # Current div category, es: Artist, Category, Group
                     category = Link.split('/')[3].title()
 
                     # Constructing message's content. Will be sent from Telegram to the users
-                    text = f'New {category} work: [{Name}](https://nhentai.net{WorkLink})]'
+                    text = f'New {category} upload: [{Name}](https://nhentai.net{UploadLink})]'
 
                     # For every chat's ID following this Group/Artist/Category/Character
                     for ChatID in ChatIDs.split(','):
@@ -112,7 +112,7 @@ with requests.Session() as SESSION:
 
                 conn.commit()  # Commit changes
             except Exception:
-                # If there were pending transaction, rollback. Maybe it will work at next cycle
+                # If there were pending transaction, rollback. Maybe it will upload at next cycle
                 if PendingTransaction is True:
                     conn.execute('rollback')
                 traceback.print_exc()
