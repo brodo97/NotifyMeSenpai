@@ -2,14 +2,15 @@ import sqlite3
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
-import sys
 import time
 import traceback
+from Config import CHECK_TIME_SECONDS
+from Classes import Database
 
-conn = sqlite3.connect('Database.db', check_same_thread=False)
-check_every = 60
+DATABASE = Database()
+DATABASE = DATABASE.conn
 
-
+# Get users' filters
 def get_skip_languages(chat_ids, previous_settings):
     # For every chat's ID following this Group/Artist/Category/Character
     for chat_id in chat_ids.split(','):
@@ -17,7 +18,7 @@ def get_skip_languages(chat_ids, previous_settings):
         if chat_id in previous_settings:
             continue
         # Get skip_languages from Settings table (if exists)
-        languages = conn.execute(
+        languages = DATABASE.execute(
             f'SELECT SettingValue FROM Settings WHERE ChatID == {chat_id} AND Setting LIKE \'skip_languages\''
         ).fetchone()
 
@@ -33,8 +34,8 @@ def get_skip_languages(chat_ids, previous_settings):
 with requests.Session() as SESSION:
     while 1:
         Settings = {}
-        SleepTime = 3600
-        for row in conn.execute('SELECT * FROM Data'):
+        SleepTime = CHECK_TIME_SECONDS
+        for row in DATABASE.execute('SELECT * FROM Data'):
             ID, ChatIDs, Link, Name, KnownUploads, LastCheck = row
             LastCheck = datetime.strptime(LastCheck, '%Y/%m/%d %H:%M:%S')
 
@@ -48,10 +49,10 @@ with requests.Session() as SESSION:
 
             # If it was checked less than an hour ago, skip
             LastCheckSeconds = (datetime.now() - LastCheck).total_seconds()
-            if LastCheckSeconds < 3600:
+            if LastCheckSeconds < CHECK_TIME_SECONDS:
                 # Calculate sleep till next check cycle
-                if 3600 - LastCheckSeconds < SleepTime:
-                    SleepTime = 3600 - LastCheckSeconds
+                if CHECK_TIME_SECONDS - LastCheckSeconds < SleepTime:
+                    SleepTime = CHECK_TIME_SECONDS - LastCheckSeconds
 
                     # Check if SleepTime > 0. Don't want negative sleep
                     SleepTime = 0 if SleepTime < 0 else SleepTime
@@ -59,14 +60,14 @@ with requests.Session() as SESSION:
 
             time.sleep(2)  # Sleep 2 seconds for spam prevention
 
-            RESULT = SESSION.get(Link)  # Do a request to the link using current session
+            RESPONSE = SESSION.get(Link)  # Do a request to the link using current session
 
             # If the response's status code differ from 200, continue
-            if RESULT.status_code != 200:
-                print(f'ERROR - check_nhentai(): {Link} returned status code = {RESULT.status_code}')
+            if RESPONSE.status_code != 200:
+                print(f'ERROR - check_nhentai(): {Link} returned status code = {RESPONSE.status_code}')
                 continue
 
-            SOUP = BeautifulSoup(RESULT.content, 'html.parser')  # Pass response's content to BeautifulSoup
+            SOUP = BeautifulSoup(RESPONSE.content, 'html.parser')  # Pass response's content to BeautifulSoup
 
             # If response's content is malformed, continue
             if SOUP is None:
@@ -85,7 +86,7 @@ with requests.Session() as SESSION:
                     UploadLink = gallery_div.find('a')['href']
 
                     # Upload's link insertion in the database for duplication avoidance
-                    conn.execute(f'UPDATE Data SET KnownUploads = KnownUploads || ",{UploadLink}" WHERE ID == {ID};')
+                    DATABASE.execute(f'UPDATE Data SET KnownUploads = KnownUploads || ",{UploadLink}" WHERE ID == {ID};')
                     PendingTransaction = True
 
                     # Current div category, es: Artist, Category, Group
@@ -100,7 +101,7 @@ with requests.Session() as SESSION:
                         if any([language in gallery_div['data-tags'] for language in Settings[ChatID]]):
                             continue
                         # Else, insert in the database a new message to send
-                        conn.execute(
+                        DATABASE.execute(
                             f'INSERT INTO MESSAGES (ChatID, Content) VALUES ({ChatID}, \'{text}\');'
                         )
                     else:
@@ -108,13 +109,13 @@ with requests.Session() as SESSION:
 
                 # Updating LastCheck to current datetime and update relative row
                 LastCheck = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
-                conn.execute(f'UPDATE Data SET LastCheck = \'{LastCheck}\' WHERE ID == {ID};')
+                DATABASE.execute(f'UPDATE Data SET LastCheck = \'{LastCheck}\' WHERE ID == {ID};')
 
-                conn.commit()  # Commit changes
+                DATABASE.commit()  # Commit changes
             except Exception:
                 # If there were pending transaction, rollback. Maybe it will upload at next cycle
                 if PendingTransaction is True:
-                    conn.execute('rollback')
+                    DATABASE.execute('rollback')
                 traceback.print_exc()
 
         time.sleep(SleepTime)

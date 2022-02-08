@@ -2,4 +2,4 @@
 Config.py
 Test.py
 venv
-Updater/Database.db
+data/Database.db
