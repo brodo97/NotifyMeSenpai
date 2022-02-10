@@ -3,12 +3,13 @@ import time
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
-from crontab import CronTab
 import os
+from Classes import View
 
 # Telegram Init
 # Messages parser: Markdown
 MD = telegram.ParseMode.MARKDOWN
+VIEW = View()
 
 
 # Send error using update and context
@@ -27,38 +28,33 @@ def send_error_b(sub_bot, user, error):
 
 
 def start(update, context):
-    user = update.message.from_user.id
-    # TODO: USER INSERTION INTO DB
-    update.message.reply_text(f"Hi!\nUse following commands:\n/add to follow something\n/remove to remove it")
+    user = update.message.from_user.id  # Telegram User's ID
+
+    # Get message's body
+    text = VIEW.start(user_id=user)
+
+    update.message.reply_text(text, parse_mode=MD)
 
 
 def status(update, context):
-    result, data = Model.get_nhentai(user)
-    if result is False:
-        send_error_uc(update, context, data, user)
-        return
-    nhentai = ""
-    if data:
-        for category, cat_data in data.items():
-            nhentai += f"Categoria: *{category}*\n"
-            for x, entry_data in enumerate(cat_data):
-                nhentai += f"*{x + 1}*) [{entry_data['Name']}]({entry_data['Link']})\n"
-            nhentai += "\n"
-    else:
-        nhentai = "*NESSUNO*"
+    user = update.message.from_user.id  # Telegram User's ID
 
-    update.message.reply_text(f"""Controllo ogni *{gettime(CheckTime)}*\n\nLink nhentai che segui:\n{nhentai}\n\nNuovi capitoli che attendi:\n{anyhentai}""", parse_mode=MD, disable_web_page_preview=True)
+    # Get message's body
+    text = VIEW.status(user_id=user)
+
+    # The message will contain many links, so link preview is disabled
+    update.message.reply_text(text, parse_mode=MD, disable_web_page_preview=True)
 
 
-def add(update, context):
-    user = update.message.from_user.id
+def add(update, context):  # TODO
+    user = update.message.from_user.id  # Telegram User's ID
     if user not in users:
         return
     text = update.message.text
     if len(text.split(" ")) > 1:
         link = text.split(" ")[1]
         if "nhentai" in link:
-            result, data = Model.add_nhentai(user, link)
+            result, data = Model.add_users_upload(user, link)
         else:
             result, data = Model.add_hentainexus_artist(user, link)
         if result == -1:
@@ -72,8 +68,8 @@ def add(update, context):
         update.message.reply_text(f"Usa /add *LINK* per aggiungere un link da seguire", parse_mode=MD)
 
 
-def remove(update, context):
-    user = update.message.from_user.id
+def remove(update, context):  # TODO
+    user = update.message.from_user.id  # Telegram User's ID
     if user not in users:
         return
 
@@ -81,9 +77,8 @@ def remove(update, context):
     update.message.reply_text("Sito di riferimento?", reply_markup=choices)
 
 
-
-def changelog(update, context):
-    user = update.message.from_user.id
+def changelog(update, context):  # TODO
+    user = update.message.from_user.id  # Telegram User's ID
     if user not in users:
         return
 
@@ -95,21 +90,17 @@ def changelog(update, context):
     context.bot.sendDocument(chat_id=user, document=open(os.path.join(This_Folder, "data", data), 'rb'))
 
 
-def button(update, context):
+def button(update, context):  # TODO
     event = update.callback_query
     user = event.from_user.id
     msg_id = event.message.message_id
-
-    if user not in users:
-        context.bot.edit_message_text(f"Non autorizzato", chat_id=user, message_id=msg_id)
-        return
 
     new_text = ""
     new_btns = None
     action, id = event.data.split("_")
     if action == "remlist":
         if id == "nhentai":
-            result, data = Model.get_nhentai(user)
+            result, data = Model.get_users_uploads(user)
         else:
             result, data = Model.get_hentainexus_artists(user)
 
@@ -128,7 +119,7 @@ def button(update, context):
             new_text = f"Lista dei link *{id}* che segui"
             new_btns = InlineKeyboardMarkup(entries)
     elif action == "remnhentai":
-        result, data = Model.remove_nhentai(id)
+        result, data = Model.remove_users_upload(user, id)
         if result == -1:
             send_error_uc(update, context, data, user)
             return
@@ -146,18 +137,18 @@ def button(update, context):
     context.bot.edit_message_text(new_text, chat_id=user, message_id=msg_id, reply_markup=new_btns, parse_mode=MD)
 
 
-def error(update, context):
+def error(update, context):  # TODO
     context.bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {context.bot.first_name}\n\nErrore: {context.error}")
 
 
-def ping(update, context):
-    user = update.message.from_user.id
+def ping(update, context):  # TODO
+    user = update.message.from_user.id  # Telegram User's ID
     if user not in users or user != ADMIN_ID:
         return
     update.message.reply_text("pong")
 
 
-def main():
+def main():  # TODO
     print("BOT STARTED")
     updater = Updater(TELEGRAM_TOKEN, use_context=True)
 
@@ -166,7 +157,6 @@ def main():
 
     # Comandi e Callback
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("timeout", timeout))
     dp.add_handler(CommandHandler("status", status))
     dp.add_handler(CommandHandler("add", add))
     dp.add_handler(CommandHandler("remove", remove))
@@ -185,33 +175,8 @@ def main():
 
 
 if __name__ == "__main__":
-    if "Tantum.py" in os.listdir(This_Folder):
-        os.system(f"{This_Folder}/venv/bin/python {This_Folder}/Tantum.py")
-        os.system(f"rm {This_Folder}/Tantum.py")
-        time.sleep(1)
-        os.system("systemctl restart bot")
-
     updater = main()
     bot = updater.bot
-    cron = CronTab(user="root")
-
-    result, data = Model.get_settings()
-    if result == -1:
-        bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {bot.first_name}\n\nErrore nell'acquisizione delle impostazioni", parse_mode=MD)
-        updater.stop()
-        exit()
-
-    for user in data:
-        ID, minutes = user
-        iter = cron.find_command(str(ID))
-        for job in iter:
-            if str(ID) in str(job):
-                break
-        else:
-            new = cron.new(command=f"{This_Folder}/venv/bin/python {This_Folder}/Update.py {ID} &> /dev/null", comment=f"User: {users[ID]['name']}")
-            new.minute.every(minutes)
-            cron.write()
-
 
     try:
         while "RUNNING":

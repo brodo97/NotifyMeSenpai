@@ -1,20 +1,18 @@
 #! /usr/bin/python3
 import sqlite3
-
-import json
 import traceback
-
 import requests
-from bs4 import BeautifulSoup
 import re
-import os
-import time
+from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urlparse
 from Config import ALLOWED_CATEGORIES, DATABASE_PATH
 
 
 class Database:
+    """
+    Functions to access and manage the database
+    """
     regex = re.compile(
         r'^(?:http|ftp)s?://'
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
@@ -28,20 +26,84 @@ class Database:
     def check_link_validity(self, link):
         return re.match(self.regex, link) is not None
 
-    # TODO: get_users_uploads
-    def get_users_uploads(self, user_id):  # get_nhentai
-        result, data = DATABASE.execute(f'SELECT * FROM Data WHERE ChatID == {user_id} ORDER BY ID ASC;')
-        if result is False:
-            return False, data
-        sub_data = {}
-        for nhentai_entry in data[0]:
-            category = nhentai_entry[2].split('/')[3].title()
-            entry_dict = {key: val for key, val in zip(data[1], nhentai_entry)}
-            if category in sub_data:
-                sub_data[category].append(entry_dict)
-            else:
-                sub_data[category] = [entry_dict]
-        return True, sub_data
+    def insert_user(self, user_id):
+        """
+        Function called to insert a new user into the database. Can also be used to get the amount of link the user can
+        follow
+
+        :param user_id: Telegram User's ID
+
+        :return: The amount of link the user can follow
+        """
+
+        # Get the amount of links the user can follow, if it exists
+        limit = self.conn.execute(
+            f'SELECT LinksLimit FROM Users WHERE ID == {user_id};'
+        ).fetchone()
+
+        # If limit is None, user exists.
+        if limit is not None:
+            return int(limit[0])
+
+        # Insert user into the database
+        self.conn.execute(
+            f'INSERT INTO Users (ID) VALUES ({user_id});'
+        )
+
+        self.conn.commit()  # Commit changes
+
+        # Get the amount of links the user can follow
+        limit = self.conn.execute(
+            f'SELECT LinksLimit FROM Users WHERE ID == {user_id};'
+        ).fetchone()
+
+        return int(limit[0])
+
+    def get_users_uploads(self, user_id):
+        """
+        Function called to get the list of links that user_id follows
+
+        :param user_id: Telegram User's ID
+
+        :return: User's links data parsed as Dict
+        """
+
+        # Get every ChatIDs' row containing user_id
+        results = self.conn.execute(
+            f'SELECT ID, Name, Link FROM Data WHERE ChatIDs LIKE \'%{user_id}%\' ORDER BY ID ASC;'
+        )
+
+        following_list = {}
+
+        # For every result (row of the database) in results (list of rows)
+        for result in results:
+            link_id, name, link = result # Unpack query result into separate variables
+
+            parsed_link = urlparse(link)  # urlparse the link
+            path_args = parsed_link.path.split('/')  # Split path into a list
+
+            # Since path should be (for example) /artist/name/ path_args should be ['', 'artist', 'name', '']
+            category = path_args[1]  # path_args[1] should be (for example) 'artist'
+
+            # If category is in list, update existing following_list[category] dict with a new entry
+            if category in following_list:
+                following_list[category].update({
+                    link_id: {
+                        'Name': name,
+                        'Link': link
+                    }
+                })
+            else:  # Else, update following_list dict with a new category and entry
+                following_list.update({
+                    category: {
+                        link_id: {
+                            'Name': name,
+                            'Link': link
+                        }
+                    }
+                })
+
+        return following_list
 
     def add_users_upload(self, user_id, link):  # add_nhentai
         """
@@ -57,13 +119,32 @@ class Database:
         if self.check_link_validity(link) is False:
             return 0, f'*{link}* is not a valid link!'
 
-        link = link.lower()           # Convert lowercase
-        parsed_link = urlparse(link)  # urlparse the link
+        link = link.lower()                      # Convert lowercase
+        parsed_link = urlparse(link)             # urlparse the link
+        path_args = parsed_link.path.split('/')  # Split path into a list
+
+        if len(path_args) < 2:
+            return 0, f'*{link}* is not a valid link!'
+
+        # Since path should be (for example) /artist/name/ path_args should be ['', 'artist', 'name', '']
+        category = path_args[1]  # path_args[1] should be (for example) 'artist'
 
         # If the site is not nhentai.net or the link doesn't contain any of the ALLOWED_CATEGORIES, return error
         if parsed_link.netloc != 'nhentai.net' or \
-                not any([category in parsed_link.path for category in ALLOWED_CATEGORIES]):
+                not any([cat == category for cat in ALLOWED_CATEGORIES]):
             return 0, f'*{link}* is not a valid link!'
+
+        # Get the amount of links the user can follow
+        limit = self.insert_user(user_id)
+
+        # Get the amount of links the user is following
+        amount = self.conn.execute(
+            f'SELECT COUNT(*) FROM Data WHERE ChatIDs LIKE \'%{user_id}%\';'
+        ).fetchone()[0]
+
+        # If the user reached the max amount of followable links, return error
+        if limit <= amount:
+            return 0, f'You\'re following too much links'
 
         # Get existing row data, if link exists
         exists = self.conn.execute(
@@ -134,7 +215,7 @@ class Database:
         :param user_id: Telegram User's ID
         :param link_id: Link's Unique ID
 
-        :return: A Tuple containing status as Integer {-1:Unexpected Error, 0:Error, 1:OK} and some data as String
+        :return: A Tuple containing status as Integer {0:Error, 1:OK} and some data as String
         """
 
         # Get existing row data, if link_id exists and user_id is in ChatIDs
@@ -161,3 +242,59 @@ class Database:
         self.conn.commit()  # Commit changes
 
         return 1, f'You unfollowed *{name}*'
+
+
+class View:
+    """
+    Functions to build Telegram's messages
+    """
+
+    def __init__(self):
+        self.database = Database()
+
+    def start(self, user_id):
+        """
+        Build the body of the /start message
+
+        :param user_id: Telegram User's ID
+
+        :return: The message to be sent
+        """
+
+        # Run user insertion
+        amount = self.database.insert_user(user_id)
+
+        text = f'*Hi!*' \
+               f'\nThis bot will help you staying up to date with your favourite nhentai artist, character, ' \
+               f'parodies and more!' \
+               f'\n\nUse the following commands:' \
+               f'\n/add to follow a link' \
+               f'\n/remove to remove it' \
+               f'\n\nYou can follow up to *{amount}* links'
+
+        return text
+
+    def status(self, user_id):
+        """
+        Build the body of the /status message
+
+        :param user_id: Telegram User's ID
+
+        :return: The message to be sent
+        """
+
+        # Get user's data
+        data = self.database.get_users_uploads(user_id)
+
+        text = ''
+        if data:
+            for category, category_data in data.items():
+                text += f"Category: *{category}*\n"
+                for x, link_id in enumerate(category_data):
+                    link_data = category_data[link_id]
+                    text += f"*{x + 1}*) [{link_data['Name']}]({link_data['Link']})\n"
+                text += "\n"
+        else:
+            text = '*None*\n\nUse /add to follow something'
+
+        return text.strip()
