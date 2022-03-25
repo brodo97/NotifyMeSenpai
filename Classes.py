@@ -233,16 +233,51 @@ class Database:
         chat_ids = chat_ids.split(',')  # Splitting string to list
         user_id = str(user_id)          # Converting user_id from any to string
         chat_ids.remove(user_id)        # Removing user_id from chat_ids
-        chat_ids = ','.join(chat_ids)   # Joining new chat_ids string
 
-        # Update row cell
-        self.conn.execute(
-            f'UPDATE Data SET ChatIDs = \'{chat_ids}\' WHERE ID == {link_id};'
-        )
+        # If there are no chat_id following the link: delete the row
+        if len(chat_ids) == 0:
+            self.conn.execute(
+                f'DELETE FROM Data WHERE ID == {link_id};'
+            )
+        else:
+            chat_ids = ','.join(chat_ids)  # Joining new chat_ids string
+            # Update row cell
+            self.conn.execute(
+                f'UPDATE Data SET ChatIDs = \'{chat_ids}\' WHERE ID == {link_id};'
+            )
         self.conn.commit()  # Commit changes
 
         return 1, f'You unfollowed *{name}*'
 
+    def get_users_settings(self, user_id):
+        """
+        Function called to get the list of user's available settings
+
+        :param user_id: Telegram User's ID
+
+        :return: User's settings data parsed as Dict
+        """
+
+        # Get every setting's row containing user_id
+        results = self.conn.execute(
+            f'SELECT ID, Setting, SettingName, SettingValue '
+            f'FROM Settings WHERE ChatID == {user_id} ORDER BY SettingName ASC;'
+        )
+
+        settings_list = {}
+
+        # For every result (row of the database) in results (list of rows)
+        for result in results:
+            setting_id, setting, name, value = result
+            settings_list.update({
+                setting_id: {
+                    'Setting': setting,
+                    'Name': name,
+                    'Value': value
+                }
+            })
+
+        return settings_list
 
 class View:
     """
@@ -255,6 +290,7 @@ class View:
     def start(self, user_id):
         """
         Build the body of the /start message
+        It contains a starting "guide" for the user on how to use the bot
 
         :param user_id: Telegram User's ID
 
@@ -277,6 +313,7 @@ class View:
     def status(self, user_id):
         """
         Build the body of the /status message
+        It contains the list of links the user is following
 
         :param user_id: Telegram User's ID
 
@@ -287,14 +324,134 @@ class View:
         data = self.database.get_users_uploads(user_id)
 
         text = ''
+
+        # If the user is following some links, build the message
         if data:
-            for category, category_data in data.items():
-                text += f"Category: *{category}*\n"
-                for x, link_id in enumerate(category_data):
-                    link_data = category_data[link_id]
-                    text += f"*{x + 1}*) [{link_data['Name']}]({link_data['Link']})\n"
-                text += "\n"
+            # For every category: Artist/Group/Character/etc...
+            for category, category_list in data.items():
+                # Init the list's header in the message
+                text += f'Category: *{category}*\n'
+
+                # For every link in the category
+                for x, link_id in enumerate(category_list.keys()):
+                    # Get the corresponding link's data
+                    link_data = category_list[link_id]
+                    name = link_data['Name']
+                    link = link_data['Link']
+
+                    # Append data to the message. The x represent an incremental ID in the list. Not sure if the user
+                    # really need that cause is not fixed. But can help to keep track on how much links the user is
+                    # following
+                    text += f'*{x + 1}*) [{name}]({link})\n'
+
+                text += '\n'
         else:
-            text = '*None*\n\nUse /add to follow something'
+            text = '*Nothing to show*\n\nUse /add *LINK* to follow something'
 
         return text.strip()
+
+    def add(self, user_id, text):
+        """
+        Build the body of the "/add *link*" message
+        It contains the list of links the user is following
+
+        :param user_id: Telegram User's ID
+        :param text: Telegram message's content
+
+        :return: A Tuple containing status as Integer {-1:Unexpected Error, 0:Error, 1:OK} and the message as String
+        """
+
+        # Separate message arguments
+        args = text.split(" ")
+
+        # Clean erroneous multiple spaces
+        while '' in args:
+            args.remove('')
+
+        # If args contain a number of parameter != 2, return error.
+        # May consider a multiple link insertion
+        if len(args) != 2:
+            return 0, f'Use /add *LINK* to follow something'
+
+        # args[0] = '/add'
+        link = args[1]
+
+        return self.database.add_users_upload(user_id, link)
+
+    def remove(self, user_id, link_id=None):
+        """
+        Build the body of the /remove message
+        It contains the list of links the user is following
+
+        :param user_id: Telegram User's ID
+        :param link_id: Link's ID to be removed, if None: return list of available links
+
+        :return: A Tuple containing status as Integer {-1:Unexpected Error, 0:Error, 1:OK} and the messages as:
+                 String if return status in [-1, 0] or link_id is not None
+                 Dict if return status = 1 and link_id is None/not used
+        """
+
+        # If link_id is not None: try to remove the link from the user's following list
+        if link_id is not None:
+            return self.database.remove_users_upload(user_id, link_id)
+
+        # If link_id is not present: get user's data
+        data = self.database.get_users_uploads(user_id)
+
+        # remove_data will contain buttons' data
+        remove_data = {}
+
+        # If the user is following some links, build the message
+        if data:
+            # For every category: Artist/Group/Character/etc...
+            for category_list in data.values():
+                # For every link in the category
+                for link_id in category_list.keys():
+                    # Get the corresponding link's data
+                    link_data = category_list[link_id]
+                    name = link_data['Name']
+
+                    remove_data[link_id] = name
+        else:
+            # Otherwise, return a message
+            return 0, '*Nothing to show*\n\nUse /add *LINK* to follow something'
+
+        return 1, remove_data
+
+    def settings(self, user_id, setting_id=None, value=None):  # TODO
+        """
+        Build the body of the /remove message
+        It contains the list of links the user is following
+
+        :param user_id: Telegram User's ID
+        :param setting_id: Setting's ID to be changed, if None: return list of available settings
+        :param value: Setting's value, if None: return list of available settings
+
+        :return: A Tuple containing status as Integer {-1:Unexpected Error, 0:Error, 1:OK} and the messages as:
+                 String if return status in [-1, 0] or link_id is not None
+                 Dict if return status = 1 and link_id is None/not used
+        """
+
+        # If setting_id is not None: try to remove the link from the user's following list
+        if setting_id is not None:
+            return self.database.change_users_setting(user_id, setting_id, value)
+
+        # If setting_id is not present: get user's data
+        data = self.database.get_users_settings(user_id)
+
+        # settings_data will contain buttons' data
+        settings_data = {}
+
+        # If the user is following some links, build the message
+        if data:
+            # For every setting
+            for setting_id, setting_data in data.items():
+                # Get the corresponding setting's data
+                name = setting_data['Name']
+                value = setting_data['Value']
+                settings_data[setting_id] = f"{name}: {value}"
+        else:
+            # Otherwise, return a message
+            return 0, '*Nothing to show*'
+
+        return 1, settings_data

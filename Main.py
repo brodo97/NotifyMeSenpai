@@ -15,18 +15,19 @@ VIEW = View()
 # Send error using update and context
 def send_error_uc(update, context, error, user):
     if user != ADMIN_ID:
-        update.message.reply_text(text=f"*ERROR!*\nThe administrator has been notified", parse_mode=MD)
-    context.bot.send_message(chat_id=ADMIN_ID, text=f"User {user} encountered an error\n\nError: {error}")
+        update.message.reply_text(text=f'*ERROR!*\nThe administrator has been notified', parse_mode=MD)
+    context.bot.send_message(chat_id=ADMIN_ID, text=f'User {user} encountered an error\n\nError: {error}')
     return
 
 
 def send_error_b(sub_bot, user, error):
     if user != ADMIN_ID:
-        sub_bot.send_message(chat_id=user, text=f"*ERROR!*\nThe administrator has been notified", parse_mode=MD)
-    sub_bot.send_message(chat_id=ADMIN_ID, text=f"User {user} encountered an error\n\nError: {error}")
+        sub_bot.send_message(chat_id=user, text=f'*ERROR!*\nThe administrator has been notified', parse_mode=MD)
+    sub_bot.send_message(chat_id=ADMIN_ID, text=f'User {user} encountered an error\n\nError: {error}')
     return
 
 
+# /start COMMAND
 def start(update, context):
     user = update.message.from_user.id  # Telegram User's ID
 
@@ -36,6 +37,7 @@ def start(update, context):
     update.message.reply_text(text, parse_mode=MD)
 
 
+# /status COMMAND
 def status(update, context):
     user = update.message.from_user.id  # Telegram User's ID
 
@@ -46,104 +48,120 @@ def status(update, context):
     update.message.reply_text(text, parse_mode=MD, disable_web_page_preview=True)
 
 
-def add(update, context):  # TODO
+# /add *LINK* COMMAND
+def add(update, context):
     user = update.message.from_user.id  # Telegram User's ID
-    if user not in users:
-        return
-    text = update.message.text
-    if len(text.split(" ")) > 1:
-        link = text.split(" ")[1]
-        if "nhentai" in link:
-            result, data = Model.add_users_upload(user, link)
-        else:
-            result, data = Model.add_hentainexus_artist(user, link)
-        if result == -1:
-            if user != ADMIN_ID:
-                send_error_uc(update, context, data, user)
-            else:
-                context.bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {context.bot.first_name}\n\nErrore: {error}")
-        else:
-            update.message.reply_text(data, parse_mode=MD)
-    else:
-        update.message.reply_text(f"Usa /add *LINK* per aggiungere un link da seguire", parse_mode=MD)
+    content = update.message.text       # Message's content
 
+    result, text = VIEW.add(user_id=user, text=content)
 
-def remove(update, context):  # TODO
-    user = update.message.from_user.id  # Telegram User's ID
-    if user not in users:
+    if result == -1:
+        send_error_uc(update, context, text, user)
         return
 
-    choices = InlineKeyboardMarkup([[InlineKeyboardButton("nhentai", callback_data="remlist_nhentai")]])
-    update.message.reply_text("Sito di riferimento?", reply_markup=choices)
+    update.message.reply_text(text, parse_mode=MD)
 
 
-def changelog(update, context):  # TODO
+# /remove COMMAND
+def remove(update, context):
     user = update.message.from_user.id  # Telegram User's ID
-    if user not in users:
-        return
 
-    result, data = Model.get_version_changelog()
-    if result is False:
+    # Call VIEW's remove function
+    result, data = VIEW.remove(user_id=user)
+
+    # If Unexpected Error: notify ADMIN and user. data is String
+    if result == -1:
         send_error_uc(update, context, data, user)
         return
 
-    context.bot.sendDocument(chat_id=user, document=open(os.path.join(This_Folder, "data", data), 'rb'))
-
-
-def button(update, context):  # TODO
-    event = update.callback_query
-    user = event.from_user.id
-    msg_id = event.message.message_id
-
-    new_text = ""
-    new_btns = None
-    action, id = event.data.split("_")
-    if action == "remlist":
-        if id == "nhentai":
-            result, data = Model.get_users_uploads(user)
-        else:
-            result, data = Model.get_hentainexus_artists(user)
-
-        if result is False:
-            send_error_uc(update, context, data, user)
-            return
-
-        entries = []
-        for category, cat_data in data.items():
-            for entry in cat_data:
-                entries.append([InlineKeyboardButton(entry["Name"] + f" ({category})", callback_data=f"rem{id}_{entry['ID']}")])
-
-        if len(entries) == 0:
-            new_text = f"Non segui link {id}"
-        else:
-            new_text = f"Lista dei link *{id}* che segui"
-            new_btns = InlineKeyboardMarkup(entries)
-    elif action == "remnhentai":
-        result, data = Model.remove_users_upload(user, id)
-        if result == -1:
-            send_error_uc(update, context, data, user)
-            return
-        new_text = data
-    elif action == "remHentaiNexus":
-        result, data = Model.remove_hentainexus_artist(id)
-        if result == -1:
-            send_error_uc(update, context, data, user)
-            return
-        new_text = data
-
-    if new_btns is None:
-        context.bot.edit_message_text(new_text, chat_id=user, message_id=msg_id, parse_mode=MD)
+    # If Error: notify user. data is String
+    if result == 0:
+        update.message.reply_text(data, parse_mode=MD)
         return
-    context.bot.edit_message_text(new_text, chat_id=user, message_id=msg_id, reply_markup=new_btns, parse_mode=MD)
+
+    # Else: Build the buttons layout. data is Dict
+    buttons_layout = []
+
+    # For every link's ID and name
+    for link_id, link_name in data.items():
+        # Example
+        # Button = Name with callback_data = "rem|5". 5 is the link_id to be removed (if selected by the user)
+        link_button = [
+            InlineKeyboardButton(
+                link_name,
+                callback_data=f'rem|{link_id}'
+            )
+        ]
+        buttons_layout.append(link_button)
+
+    # "Render" the button list
+    update.message.reply_text('Who you want to unfollow?', reply_markup=InlineKeyboardMarkup(buttons_layout))
+
+
+# /settings COMMAND
+def settings(update, context):  # TODO
+    user = update.message.from_user.id  # Telegram User's ID
+
+    # Call VIEW's settings function
+    result, data = VIEW.settings(user_id=user)
+
+    # If Unexpected Error: notify ADMIN and user. data is String
+    if result == -1:
+        send_error_uc(update, context, data, user)
+        return
+
+    # If Error: notify user. data is String
+    if result == 0:
+        update.message.reply_text(data, parse_mode=MD)
+        return
+
+    # Else: Build the buttons layout. data is Dict
+    buttons_layout = []
+
+    # For every link's ID and name
+    for setting_id, setting_name in data.items():
+        # Example
+        # Button = Name with callback_data = "setting|5". 5 is the setting_id to be changed (if selected by the user)
+        setting_button = [
+            InlineKeyboardButton(
+                setting_name,
+                callback_data=f'setting|{setting_id}'
+            )
+        ]
+        buttons_layout.append(setting_button)
+
+    # "Render" the button list
+    update.message.reply_text('What do you want to change?', reply_markup=InlineKeyboardMarkup(buttons_layout))
+
+
+# Manage buttons
+def button(update, context):
+    event = update.callback_query          # Telegram's event
+    user = event.from_user.id              # Telegram User's ID
+    old_msg_id = event.message.message_id  # Old Telegram message's ID. Used to edit the previous message
+
+    action, action_argument = event.data.split("|")
+
+    text = ""
+
+    if action != 'rem':
+        result, text = VIEW.remove(user_id=user, link_id=action_argument)
+
+        if result == -1:
+            send_error_uc(update, context, text, user)
+            return
+
+    context.bot.edit_message_text(text, chat_id=user, message_id=old_msg_id, parse_mode=MD)
 
 
 def error(update, context):  # TODO
     context.bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {context.bot.first_name}\n\nErrore: {context.error}")
 
 
-def ping(update, context):  # TODO
+# Just a /ping command to know if the bot is running
+def ping(update, context):
     user = update.message.from_user.id  # Telegram User's ID
-    if user not in users or user != ADMIN_ID:
+    if user != ADMIN_ID:
         return
     update.message.reply_text("pong")
 
@@ -160,14 +178,14 @@ def main():  # TODO
     dp.add_handler(CommandHandler("status", status))
     dp.add_handler(CommandHandler("add", add))
     dp.add_handler(CommandHandler("remove", remove))
-    dp.add_handler(CommandHandler("changelog", changelog))
+    dp.add_handler(CommandHandler("settings", settings))
     dp.add_handler(CommandHandler("ping", ping))
 
     # Bottone premuto
     dp.add_handler(CallbackQueryHandler(button))
 
     # Errori
-    dp.add_error_handler(error)
+    # dp.add_error_handler(error)
 
     updater.start_polling()
     return updater
@@ -216,4 +234,4 @@ if __name__ == "__main__":
         updater.stop()
         exit()
     except Exception as e:
-        bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {bot.first_name}\n\nErrore: {str(e)}", parse_mode=MD)
+        pass  # bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {bot.first_name}\n\nErrore: {str(e)}", parse_mode=MD)

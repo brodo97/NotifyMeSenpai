@@ -11,15 +11,15 @@ DATABASE = Database()
 DATABASE = DATABASE.conn
 
 # Get users' filters
-def get_skip_languages(chat_ids, previous_settings):
+def get_ignored_languages(chat_ids, previous_settings):
     # For every chat's ID following this Group/Artist/Category/Character
     for chat_id in chat_ids.split(','):
         # Check if it has been already checked/updated/inserted in the previous settings variable
         if chat_id in previous_settings:
             continue
-        # Get skip_languages from Settings table (if exists)
+        # Get ignore_languages from Settings table (if exists)
         languages = DATABASE.execute(
-            f'SELECT SettingValue FROM Settings WHERE ChatID == {chat_id} AND Setting LIKE \'skip_languages\''
+            f'SELECT SettingValue FROM Settings WHERE ChatID == {chat_id} AND Setting LIKE \'ignore_languages\''
         ).fetchone()
 
         # And if not exists then []
@@ -40,7 +40,7 @@ with requests.Session() as SESSION:
             LastCheck = datetime.strptime(LastCheck, '%Y/%m/%d %H:%M:%S')
 
             # Update Settings variable. (Every hour or so)
-            NewSettings = get_skip_languages(ChatIDs, Settings)
+            NewSettings = get_ignored_languages(ChatIDs, Settings)
             Settings.update(NewSettings)
 
             # Init to arbitrary datetime
