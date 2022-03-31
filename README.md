@@ -7,3 +7,8 @@ You can monitor:
 - Tags
 - Characters
 - Groups
+
+### Donate
+If this project helped you, you can buy me a beer or a cup of coffee! :wink:
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](https://www.paypal.me/brodo97)

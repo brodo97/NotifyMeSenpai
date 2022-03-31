@@ -31,21 +31,21 @@ class Database:
 
     def update_settings(self):
         """
-        Initialize settings dictionary
-        :return: None
+        Initialize/update settings dictionary
+        :return: Nothing
         """
 
-        # Get settings informations
+        # Get settings list and other informations
         results = self.conn.execute(
-            f'SELECT Setting, SetValues, ValuesNames '
+            f'SELECT Setting, SettingName, SetValues, ValuesNames '
             f'FROM Settings'
         )
 
         # For every setting (row) in results (list of rows)
         for result in results:
-            setting, values, values_names = result  # Unpack query result into separate variables
-            values = values.split(',')              # Split into separate values on ,
-            values_names = values_names.split(',')  # Split into separate names on ,
+            setting, name, values, values_names = result  # Unpack query result into separate variables
+            values = values.split(',')                    # Split into separate values on ,
+            values_names = values_names.split(',')        # Split into separate names on ,
 
             # Create a dict with the association Setting's parameter name: Setting's parameter value
             setting_options_nv = {
@@ -61,6 +61,7 @@ class Database:
             # Update dict with association Setting's name: Setting's options
             self.available_settings_dictionary.update({
                 setting: {
+                    'Name': name,
                     'NameValue': setting_options_nv,
                     'ValueName': setting_options_vn
                 }
@@ -89,6 +90,27 @@ class Database:
         self.conn.execute(
             f'INSERT INTO Users (ID) VALUES ({user_id});'
         )
+
+        # Get settings list and other informations
+        results = self.conn.execute(
+            f'SELECT Setting '
+            f'FROM Settings'
+        )
+
+        settings_to_insert = []
+
+        # For every setting (row) in results (list of rows)
+        for result in results:
+            setting = result[0]
+            # Init every setting for the user
+            settings_to_insert.append(
+                f'({user_id}, \'{setting}\')'
+            )
+
+        settings_to_insert = ', '.join(settings_to_insert)  # Join values on ', '
+        print(f'INSERT INTO UserSettings (ChatID, Setting) VALUES {settings_to_insert};')
+        # Insert settings
+        self.conn.execute(f'INSERT INTO UserSettings (ChatID, Setting) VALUES {settings_to_insert};')
 
         self.conn.commit()  # Commit changes
 
@@ -300,19 +322,18 @@ class Database:
 
         # Get every setting's row containing user_id
         results = self.conn.execute(
-            f'SELECT ID, Setting, SettingName, SettingValue '
-            f'FROM UserSettings WHERE ChatID == {user_id} ORDER BY SettingName ASC;'
+            f'SELECT ID, Setting, Value '
+            f'FROM UserSettings WHERE ChatID == {user_id};'
         )
 
         settings_list = {}
 
         # For every result (row of the database) in results (list of rows)
         for result in results:
-            setting_id, setting, name, value = result
+            setting_id, setting, value = result
             settings_list.update({
                 setting_id: {
                     'Setting': setting,
-                    'Name': name,
                     'Value': value,
                     'Options': self.available_settings_dictionary[setting]
                 }
@@ -333,13 +354,13 @@ class Database:
 
         # Get existing row data, should exist
         result = self.conn.execute(
-            f'SELECT Setting, SettingValue FROM UserSettings WHERE ID == {setting_id} AND ChatID == {user_id} LIMIT 1;'
+            f'SELECT Setting, Value FROM UserSettings WHERE ID == {setting_id} AND ChatID == {user_id} LIMIT 1;'
         ).fetchone()
 
         setting, values = result    # Unpack values
 
         # if values is empty, init values = [] to avoid [''] (Empty string in the list)
-        if values == '':
+        if values == '' or values is None:
             values = []
         else:
             values = values.split(',')  # Split different values, if something is present, on ','
@@ -347,7 +368,7 @@ class Database:
         # Get corresponding setting's option name
         setting_name = self.available_settings_dictionary[setting]['ValueName'][value]
 
-        text = f'{setting_name} '
+        text = f'Setting *{setting_name}* '
 
         # If value is present, remove it
         if value in values:
@@ -362,7 +383,7 @@ class Database:
 
         # Update row cell
         self.conn.execute(
-            f'UPDATE UserSettings SET SettingValue = \'{values}\' WHERE ID == {setting_id} AND ChatID == {user_id};'
+            f'UPDATE UserSettings SET Value = \'{values}\' WHERE ID == {setting_id} AND ChatID == {user_id};'
         )
 
         self.conn.commit()
@@ -442,7 +463,9 @@ class View:
                f'\n\nUse the following commands:' \
                f'\n/add to follow a link' \
                f'\n/remove to remove it' \
-               f'\n\nYou can follow up to *{amount}* links'
+               f'\n\nUse /settings to change some notification\'s parameter' \
+               f'\n\nYou can follow up to *{amount}* links' \
+               f'\n\nIf you really like this bot, you can buy me a cup of coffee! https://www.paypal.me/brodo97'
 
         return text
 
@@ -583,13 +606,13 @@ class View:
             # For every setting
             for setting_id, setting_data in data.items():
                 # Get the corresponding setting's data, maybe this should/can be simplified
-                setting_name = setting_data['Name']
                 setting = setting_data['Setting']
+                setting_name = self.database.available_settings_dictionary[setting]['Name']
 
                 current_setting = f'{setting_name}: '  # Button text showing current settings
 
                 # If the setting has values, create the button text
-                if setting_data['Value'] != '':
+                if setting_data['Value'] != '' and setting_data['Value'] is not None:
                     values = setting_data['Value'].split(',')
 
                     # Set values names list
