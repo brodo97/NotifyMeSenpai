@@ -139,13 +139,13 @@ def settings(update, context):  # TODO
 
         buttons_layout.append(setting_button)
 
-        # Add an exit button
-        buttons_layout.append([
-            InlineKeyboardButton(
-                'Exit',
-                callback_data=f'exit|0'
-            )
-        ])
+    # Add an exit button
+    buttons_layout.append([
+        InlineKeyboardButton(
+            'Exit',
+            callback_data=f'exit|0'
+        )
+    ])
 
     # "Render" the button list
     update.message.reply_text('What do you want to change?', reply_markup=InlineKeyboardMarkup(buttons_layout))
