@@ -398,9 +398,21 @@ class Database:
 
     def message_set_sent(self, message_id: int):
         """
-        :param message_id:
-        :return:
+        Set message as sent
+
+        :param message_id: Message's id to be set as sent
+
+        :return: Nothing
         """
+
+        # Update row cell
+        self.conn.execute(
+            f'UPDATE Messages SET Sent = 1 WHERE ID == {message_id};'
+        )
+
+        self.conn.commit()
+
+        return
 
 
 class View:
