@@ -1,2 +1,9 @@
 # NotifyMeSenpai
-Receive a Telegram message when your favourite artist publish something
+Receive a Telegram message when something new is uploaded on nhentai!
+
+You can monitor:
+- Artists
+- Parodies
+- Tags
+- Characters
+- Groups
