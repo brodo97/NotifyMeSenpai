@@ -10,6 +10,7 @@ from Classes import Database
 DATABASE = Database()
 DATABASE = DATABASE.conn
 
+
 # Get users' filters
 def get_ignored_languages(chat_ids, previous_settings):
     # For every chat's ID following this Group/Artist/Category/Character
@@ -19,7 +20,7 @@ def get_ignored_languages(chat_ids, previous_settings):
             continue
         # Get ignore_languages from Settings table (if exists)
         languages = DATABASE.execute(
-            f'SELECT SettingValue FROM Settings WHERE ChatID == {chat_id} AND Setting LIKE \'ignore_languages\''
+            f'SELECT SettingValue FROM UserSettings WHERE ChatID == {chat_id} AND Setting LIKE \'ignore_languages\''
         ).fetchone()
 
         # And if not exists then []
@@ -93,7 +94,7 @@ with requests.Session() as SESSION:
                     category = Link.split('/')[3].title()
 
                     # Constructing message's content. Will be sent from Telegram to the users
-                    text = f'New {category} upload: [{Name}](https://nhentai.net{UploadLink})]'
+                    text = f'New {category} upload: [{Name}](https://nhentai.net{UploadLink})'
 
                     # For every chat's ID following this Group/Artist/Category/Character
                     for ChatID in ChatIDs.split(','):

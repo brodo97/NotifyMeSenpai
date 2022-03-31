@@ -1,3 +1,5 @@
+import traceback
+
 from Config import TELEGRAM_TOKEN, ADMIN_ID
 import time
 import telegram
@@ -5,6 +7,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
 import os
 from Classes import View
+import logging
+
+
 
 # Telegram Init
 # Messages parser: Markdown
@@ -119,16 +124,28 @@ def settings(update, context):  # TODO
     buttons_layout = []
 
     # For every link's ID and name
-    for setting_id, setting_name in data.items():
+    for setting_id, setting_data in data.items():
+        current_setting = setting_data['CurrentSettings']
+        setting_options = setting_data['SettingOptions']
+
         # Example
         # Button = Name with callback_data = "setting|5". 5 is the setting_id to be changed (if selected by the user)
         setting_button = [
             InlineKeyboardButton(
-                setting_name,
-                callback_data=f'setting|{setting_id}'
+                current_setting,
+                callback_data=f'show_setting|{setting_id}_{setting_options}'
             )
         ]
+
         buttons_layout.append(setting_button)
+
+        # Add an exit button
+        buttons_layout.append([
+            InlineKeyboardButton(
+                'Exit',
+                callback_data=f'exit|0'
+            )
+        ])
 
     # "Render" the button list
     update.message.reply_text('What do you want to change?', reply_markup=InlineKeyboardMarkup(buttons_layout))
@@ -140,17 +157,66 @@ def button(update, context):
     user = event.from_user.id              # Telegram User's ID
     old_msg_id = event.message.message_id  # Old Telegram message's ID. Used to edit the previous message
 
-    action, action_argument = event.data.split("|")
+    action, action_arguments = event.data.split('|')  # Split action from arguments on '_'
 
-    text = ""
+    # If the action is 'exit', delete the last message
+    if action == 'exit':
+        context.bot.delete_message(chat_id=user, message_id=old_msg_id)
+        return
 
-    if action != 'rem':
-        result, text = VIEW.remove(user_id=user, link_id=action_argument)
+    text = ''
 
+    # If action is 'rem', remove selected link' id
+    if action == 'rem':
+        result, text = VIEW.remove(user_id=user, link_id=action_arguments)
+
+        # If VIEW.remove returns an error
         if result == -1:
             send_error_uc(update, context, text, user)
             return
 
+    # If action is 'show_setting', build the next phase buttons
+    if action == 'show_setting':
+        setting_id, setting_options = action_arguments.split('_')  # Split setting's id and option on '_'
+        setting_options = setting_options.split(',')               # Split setting's options on ','
+
+        buttons_layout = []
+
+        # For every option
+        for option in setting_options:
+            option_name, option_value = option.split(':')  # Split option's name and value on ':'
+
+            # Append the option to buttons_layout
+            buttons_layout.append([
+                InlineKeyboardButton(
+                    f'{option_name}',
+                    callback_data=f'set_setting|{setting_id}_{option_value}'
+                )
+            ])
+
+        # Edit the last message (old_msg_id)
+        context.bot.edit_message_text(
+            f'Click to enable or disable the corresponding setting',
+            reply_markup=InlineKeyboardMarkup(buttons_layout),
+            chat_id=user,
+            message_id=old_msg_id
+        )
+
+        return
+
+    # If action is 'set_setting'
+    if action == 'set_setting':
+        setting_id, setting_value = action_arguments.split('_')  # Split setting's id and value on '_'
+
+        # Call the VIEW.settings function to edit the value
+        result, text = VIEW.settings(user_id=user, setting_id=setting_id, value=setting_value)
+
+        # If VIEW.settings returns and error
+        if result == -1:
+            send_error_uc(update, context, text, user)
+            return
+
+    # Edit the last message with the corresponding text, if necessary
     context.bot.edit_message_text(text, chat_id=user, message_id=old_msg_id, parse_mode=MD)
 
 
@@ -198,40 +264,18 @@ if __name__ == "__main__":
 
     try:
         while "RUNNING":
-            try:
-                time.sleep(60)
-                if "socket" in os.listdir(This_Folder):
-                    socket_size = os.stat("socket").st_size
-                    if socket_size == 0:
-                        continue
-                    if "socket.lock" in os.listdir(This_Folder):
-                        while "socket.lock" in os.listdir(This_Folder):
-                            time.sleep(1)
-                    os.system(f"touch {This_Folder}/socket.lock")
-                    with open(f"{This_Folder}/socket", encoding="utf-8") as socket:
-                        for line in socket:
-                            if len(line.split("|")) != 3:
-                                continue
-                            result, user, data = line.strip().split("|")
-                            result = bool(result)
-                            if user.isdigit():
-                                user = int(user)
-                                if result is False:
-                                    send_error_b(bot, user, data)
-                                else:
-                                    bot.send_message(chat_id=user, text=data, parse_mode=MD)
-                            else:
-                                for user in users:
-                                    bot.send_message(chat_id=user, text=data.replace("§", "\n"), parse_mode=MD)
-                    with open(f"{This_Folder}/socket", "w", encoding="utf-8") as flush:
-                        pass
-                    os.system(f"rm {This_Folder}/socket.lock")
-            except Exception as e:
-                bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {bot.first_name}\n\nErrore: {str(e)}", parse_mode=MD)
-                os.system(f"rm {This_Folder}/socket.lock")
+            data = VIEW.get_messages()
+            for message_id, message_data in data.items():
+                user_id, message = message_data
+                try:
+                    bot.send_message(chat_id=user_id, text=message, parse_mode=MD)
+                    VIEW.message_set_sent(message_id)
+                except:
+                    send_error_b(bot, ADMIN_ID, f"Error while sending message: **{message_id}**")
+            time.sleep(3600)
     except (KeyboardInterrupt, SystemExit) as e:
         print(f"INTERRUPT: {e}")
         updater.stop()
         exit()
     except Exception as e:
-        pass  # bot.send_message(chat_id=ADMIN_ID, text=f"Errore da: {bot.first_name}\n\nErrore: {str(e)}", parse_mode=MD)
+        send_error_b(bot, ADMIN_ID, traceback.format_exc())

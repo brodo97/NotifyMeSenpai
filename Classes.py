@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 import sqlite3
 import traceback
+
 import requests
 import re
 from bs4 import BeautifulSoup
@@ -22,11 +23,50 @@ class Database:
 
     def __init__(self, db_path=DATABASE_PATH):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.available_settings_dictionary = {}
+        self.update_settings()
 
-    def check_link_validity(self, link):
+    def check_link_validity(self, link: str):
         return re.match(self.regex, link) is not None
 
-    def insert_user(self, user_id):
+    def update_settings(self):
+        """
+        Initialize settings dictionary
+        :return: None
+        """
+
+        # Get settings informations
+        results = self.conn.execute(
+            f'SELECT Setting, SetValues, ValuesNames '
+            f'FROM Settings'
+        )
+
+        # For every setting (row) in results (list of rows)
+        for result in results:
+            setting, values, values_names = result  # Unpack query result into separate variables
+            values = values.split(',')              # Split into separate values on ,
+            values_names = values_names.split(',')  # Split into separate names on ,
+
+            # Create a dict with the association Setting's parameter name: Setting's parameter value
+            setting_options_nv = {
+                name: value
+                for name, value in zip(values_names, values)
+            }
+            # Create a dict with the association Setting's parameter value: Setting's parameter name
+            setting_options_vn = {
+                value: name
+                for name, value in zip(values_names, values)
+            }
+
+            # Update dict with association Setting's name: Setting's options
+            self.available_settings_dictionary.update({
+                setting: {
+                    'NameValue': setting_options_nv,
+                    'ValueName': setting_options_vn
+                }
+            })
+
+    def insert_user(self, user_id: int):
         """
         Function called to insert a new user into the database. Can also be used to get the amount of link the user can
         follow
@@ -59,7 +99,7 @@ class Database:
 
         return int(limit[0])
 
-    def get_users_uploads(self, user_id):
+    def get_users_uploads(self, user_id: int):
         """
         Function called to get the list of links that user_id follows
 
@@ -105,7 +145,7 @@ class Database:
 
         return following_list
 
-    def add_users_upload(self, user_id, link):  # add_nhentai
+    def add_users_upload(self, user_id: int, link: str):  # add_nhentai
         """
         Function called when a user wants to follow a new link.
 
@@ -208,7 +248,7 @@ class Database:
 
                 return 1, f'You\'re now following [{name}]({link})'
 
-    def remove_users_upload(self, user_id, link_id):  # remove_nhentai
+    def remove_users_upload(self, user_id: int, link_id: int):  # remove_nhentai
         """
         Function called when a user wants to unfollow a link.
 
@@ -249,7 +289,7 @@ class Database:
 
         return 1, f'You unfollowed *{name}*'
 
-    def get_users_settings(self, user_id):
+    def get_users_settings(self, user_id: int):
         """
         Function called to get the list of user's available settings
 
@@ -261,7 +301,7 @@ class Database:
         # Get every setting's row containing user_id
         results = self.conn.execute(
             f'SELECT ID, Setting, SettingName, SettingValue '
-            f'FROM Settings WHERE ChatID == {user_id} ORDER BY SettingName ASC;'
+            f'FROM UserSettings WHERE ChatID == {user_id} ORDER BY SettingName ASC;'
         )
 
         settings_list = {}
@@ -273,11 +313,95 @@ class Database:
                 setting_id: {
                     'Setting': setting,
                     'Name': name,
-                    'Value': value
+                    'Value': value,
+                    'Options': self.available_settings_dictionary[setting]
                 }
             })
 
         return settings_list
+
+    def update_users_setting(self, user_id: int, setting_id: int, value: str):
+        """
+        Function called to update user's settings
+
+        :param user_id: Not necessary since setting_id is unique and associated to a single user_id
+        :param setting_id: User's Setting ID
+        :param value: Setting's value
+
+        :return: A Tuple containing status as Integer {0:Error, 1:OK} and some data as String
+        """
+
+        # Get existing row data, should exist
+        result = self.conn.execute(
+            f'SELECT Setting, SettingValue FROM UserSettings WHERE ID == {setting_id} AND ChatID == {user_id} LIMIT 1;'
+        ).fetchone()
+
+        setting, values = result    # Unpack values
+
+        # if values is empty, init values = [] to avoid [''] (Empty string in the list)
+        if values == '':
+            values = []
+        else:
+            values = values.split(',')  # Split different values, if something is present, on ','
+
+        # Get corresponding setting's option name
+        setting_name = self.available_settings_dictionary[setting]['ValueName'][value]
+
+        text = f'{setting_name} '
+
+        # If value is present, remove it
+        if value in values:
+            values.remove(value)
+            text += 'disabled'
+        # Otherwise, add it
+        else:
+            values.append(value)
+            text += 'enabled'
+
+        values = ','.join(values)  # Pack different values
+
+        # Update row cell
+        self.conn.execute(
+            f'UPDATE UserSettings SET SettingValue = \'{values}\' WHERE ID == {setting_id} AND ChatID == {user_id};'
+        )
+
+        self.conn.commit()
+
+        return 1, text
+
+    def get_not_sent_messages(self):
+        """
+        Function called to collect the list of users messages that has to be sent
+
+        :return: All the messages that has to be sent, parsed as Dict {ID: [ChatID, Message]}
+        """
+
+        # Get every not sent message
+        results = self.conn.execute(
+            f'SELECT ID, ChatID, Content '
+            f'FROM Messages WHERE Sent == 0;'
+        )
+
+        messages = {}
+
+        # For every result (row of the database) in results (list of rows)
+        for result in results:
+            message_id, user_id, message = result
+            messages.update({
+                message_id: [
+                    user_id,
+                    message
+                ]
+            })
+
+        return messages
+
+    def message_set_sent(self, message_id: int):
+        """
+        :param message_id:
+        :return:
+        """
+
 
 class View:
     """
@@ -287,7 +411,7 @@ class View:
     def __init__(self):
         self.database = Database()
 
-    def start(self, user_id):
+    def start(self, user_id: int):
         """
         Build the body of the /start message
         It contains a starting "guide" for the user on how to use the bot
@@ -310,7 +434,7 @@ class View:
 
         return text
 
-    def status(self, user_id):
+    def status(self, user_id: int):
         """
         Build the body of the /status message
         It contains the list of links the user is following
@@ -330,7 +454,7 @@ class View:
             # For every category: Artist/Group/Character/etc...
             for category, category_list in data.items():
                 # Init the list's header in the message
-                text += f'Category: *{category}*\n'
+                text += f'Category: *{category.title()}*\n'
 
                 # For every link in the category
                 for x, link_id in enumerate(category_list.keys()):
@@ -350,7 +474,7 @@ class View:
 
         return text.strip()
 
-    def add(self, user_id, text):
+    def add(self, user_id: int, text: str):
         """
         Build the body of the "/add *link*" message
         It contains the list of links the user is following
@@ -362,7 +486,7 @@ class View:
         """
 
         # Separate message arguments
-        args = text.split(" ")
+        args = text.split(' ')
 
         # Clean erroneous multiple spaces
         while '' in args:
@@ -378,7 +502,7 @@ class View:
 
         return self.database.add_users_upload(user_id, link)
 
-    def remove(self, user_id, link_id=None):
+    def remove(self, user_id: int, link_id: int = None):
         """
         Build the body of the /remove message
         It contains the list of links the user is following
@@ -418,7 +542,7 @@ class View:
 
         return 1, remove_data
 
-    def settings(self, user_id, setting_id=None, value=None):  # TODO
+    def settings(self, user_id: int, setting_id: int = None, value: str = None):  # TODO
         """
         Build the body of the /remove message
         It contains the list of links the user is following
@@ -428,13 +552,13 @@ class View:
         :param value: Setting's value, if None: return list of available settings
 
         :return: A Tuple containing status as Integer {-1:Unexpected Error, 0:Error, 1:OK} and the messages as:
-                 String if return status in [-1, 0] or link_id is not None
-                 Dict if return status = 1 and link_id is None/not used
+                 String if return status in [-1, 0] or setting_id is not None
+                 Dict if return status = 1 and setting_id is None/not used
         """
 
-        # If setting_id is not None: try to remove the link from the user's following list
+        # If setting_id is not None: try to change the setting
         if setting_id is not None:
-            return self.database.change_users_setting(user_id, setting_id, value)
+            return self.database.update_users_setting(user_id, setting_id, value)
 
         # If setting_id is not present: get user's data
         data = self.database.get_users_settings(user_id)
@@ -446,12 +570,56 @@ class View:
         if data:
             # For every setting
             for setting_id, setting_data in data.items():
-                # Get the corresponding setting's data
-                name = setting_data['Name']
-                value = setting_data['Value']
-                settings_data[setting_id] = f"{name}: {value}"
+                # Get the corresponding setting's data, maybe this should/can be simplified
+                setting_name = setting_data['Name']
+                setting = setting_data['Setting']
+
+                current_setting = f'{setting_name}: '  # Button text showing current settings
+
+                # If the setting has values, create the button text
+                if setting_data['Value'] != '':
+                    values = setting_data['Value'].split(',')
+
+                    # Set values names list
+                    value_names = [
+                        self.database.available_settings_dictionary[setting]['ValueName'][value]
+                        for value in values
+                    ]
+                    value_names = ', '.join(value_names)  # Join with ', '
+
+                    current_setting += f'{value_names}'
+                else:
+                    # If there is no set value: set the button's text to 'Nothing set'
+                    current_setting += 'Nothing set'
+
+                # List of available options
+                options = [
+                    f'{name}:{value}'
+                    for name, value in self.database.available_settings_dictionary[setting]['NameValue'].items()
+                ]
+                options = ','.join(options)
+
+                # Updating settings dict
+                settings_data.update({
+                    setting_id: {
+                        'CurrentSettings': current_setting,
+                        'SettingOptions': options
+                    }
+                })
         else:
             # Otherwise, return a message
             return 0, '*Nothing to show*'
 
         return 1, settings_data
+
+    def get_messages(self):
+        """
+        Call to self.database.get_not_sent_messages()
+        """
+        return self.database.get_not_sent_messages()
+
+    def message_set_sent(self, message_id: int):
+        """
+        Call to self.database.message_set_sent(message_id)
+        """
+        return self.database.message_set_sent(message_id)
