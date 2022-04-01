@@ -99,8 +99,16 @@ def remove(update, context):
         ]
         buttons_layout.append(link_button)
 
+    # Add an exit button
+    buttons_layout.append([
+        InlineKeyboardButton(
+            'Exit',
+            callback_data=f'exit|0'
+        )
+    ])
+
     # "Render" the button list
-    update.message.reply_text('Who you want to unfollow?', reply_markup=InlineKeyboardMarkup(buttons_layout))
+    update.message.reply_text('What do you want to unfollow?', reply_markup=InlineKeyboardMarkup(buttons_layout))
 
 
 # /settings COMMAND

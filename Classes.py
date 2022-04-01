@@ -132,28 +132,26 @@ class Database:
 
         # Get every row containing user_id
         results = self.conn.execute(
-            f'SELECT L.ID, L.Name, L.Link '
+            f'SELECT L.ID, L.Name, L.Category, L.Link '
             f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
-            f'WHERE F.ChatID == {user_id} ORDER BY L.ID ASC;'
+            f'WHERE F.ChatID == {user_id} ORDER BY L.Category ASC;'
         )
 
         following_list = {}
 
         # For every result (row of the database) in results (list of rows)
         for result in results:
-            link_id, name, link = result  # Unpack query result into separate variables
+            link_id, name, category, link = result  # Unpack query result into separate variables
 
             parsed_link = urlparse(link)  # urlparse the link
             path_args = parsed_link.path.split('/')  # Split path into a list
-
-            # Since path should be (for example) /artist/name/ path_args should be ['', 'artist', 'name', '']
-            category = path_args[1]  # path_args[1] should be (for example) 'artist'
 
             # If category is in list, update existing following_list[category] dict with a new entry
             if category in following_list:
                 following_list[category].update({
                     link_id: {
                         'Name': name,
+                        'Category': category,
                         'Link': link
                     }
                 })
@@ -162,6 +160,7 @@ class Database:
                     category: {
                         link_id: {
                             'Name': name,
+                            'Category': category,
                             'Link': link
                         }
                     }
@@ -577,8 +576,10 @@ class View:
                     # Get the corresponding link's data
                     link_data = category_list[link_id]
                     name = link_data['Name']
+                    category = link_data['Category']
+                    button_text = f'{category}: {name}'
 
-                    remove_data[link_id] = name
+                    remove_data[link_id] = button_text
         else:
             # Otherwise, return a message
             return 0, '*Nothing to show*\n\nUse /add *LINK* to follow something'
