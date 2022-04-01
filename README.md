@@ -1,4 +1,4 @@
-`NotifyMeSenpai` is a useful Telegram bot to stay up to date with your favourite nhentai artists, Parodies, Tags, Characters and Groups!
+`NotifyMeSenpai` is a useful Telegram bot to stay up to date with your favourite nhentai Artists, Parodies, Tags, Characters and Groups!
 
 ### How to use it
 Just subscribe to [NotifyMeSenpai](https://t.me/notifymesenpai_bot) and start playing around!
@@ -9,24 +9,31 @@ Use the following commands:
 - **/status** - Get a list of the links you're following :information_source:
 - **/settings** - Change some personal parameters :wrench:
 
+
 ### Limitations
 The amount of links that you can follow is limited. This choice was taken for two reasons:
 1. To discourage abusive uses. People who love to see the world burn :fire: can `/add` a massive amount of links,
 effectively clogging the bot and making it unusable/unstable.
-2. To "equally" distribute compute power among users. No user has advantages on another
+2. To "equally" distribute compute power among users. No user has advantages over another
+
 
 ### Future features
-Just a list of features I would like to implement
+Just a list of features I would like to implement:
 - [ ] Administration tools (Like /ban)
 - [ ] Logger to keep track of what the logic is doing
 - [ ] Ideas... ?
 
+### Current state of the project
+The bot works well. All the things like the structure, classes and other files are a bit of a mess.
+I'm still learning, but I'd like the project to be as much [PEP](https://peps.python.org/) compliant as possible
+
+
 
 # DISCLAIMERS
 
-### Notice to Minors
-:underage: **This bot is not directed at and is not intended to be visited by minors.**
-If you are a minor, do not use this bot. :underage:
+### :underage: Notice to Minors :underage:
+**This bot is not directed at and is not intended to be visited by minors.**
+If you are a minor, do not use this bot.
 
 ### Links to Third-Party Websites
 This bot will send you links to third-party websites or other content. I cannot control these third-party links or the
@@ -40,6 +47,9 @@ accounts. The server collects this information to administer and manage the bot,
 and to obtain and review bot-related statistics and information (for example, verifying system and server integrity).
 The server do not collect any other personal information that can, in any way, lead the personal identification of the
 user
+
+# Contributing to this project
+I'm seeking bug reports and feature requests.
 
 
 # Donate
