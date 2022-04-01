@@ -12,23 +12,16 @@ DATABASE = DATABASE.conn
 
 
 # Get users' filters
-def get_ignored_languages(chat_ids, previous_settings):
-    # For every chat's ID following this Group/Artist/Category/Character
-    for chat_id in chat_ids.split(','):
-        # Check if it has been already checked/updated/inserted in the previous settings variable
-        if chat_id in previous_settings:
-            continue
-        # Get ignore_languages from Settings table (if exists)
-        languages = DATABASE.execute(
-            f'SELECT Value FROM UserSettings WHERE ChatID == {chat_id} AND Setting LIKE \'ignore_languages\''
-        ).fetchone()
+def get_ignored_languages(chat_id: int):
+    # Get ignore_languages from Settings table (if exists)
+    languages = DATABASE.execute(
+        f'SELECT Value FROM UserSettings WHERE ChatID == {chat_id} AND Setting LIKE \'skip_languages\''
+    ).fetchone()
 
-        # And if not exists then []
-        languages = languages[0].split(',') if languages is not None else []
+    # And if not exists then []
+    languages = [] if languages[0] is None else languages[0].split(',')
 
-        # Update previous settings for later return
-        previous_settings.update({chat_id: languages})
-    return previous_settings
+    return languages
 
 
 # Creating requests' Session
@@ -36,17 +29,37 @@ with requests.Session() as SESSION:
     while 1:
         Settings = {}
         SleepTime = CHECK_TIME_SECONDS
-        for row in DATABASE.execute('SELECT * FROM Data'):
-            ID, ChatIDs, Link, Name, KnownUploads, LastCheck = row
-            LastCheck = datetime.strptime(LastCheck, '%Y/%m/%d %H:%M:%S')
 
-            # Update Settings variable. (Every hour or so)
-            NewSettings = get_ignored_languages(ChatIDs, Settings)
-            Settings.update(NewSettings)
+        # Update Settings variable
+        for row in DATABASE.execute('SELECT ID FROM Users'):
+            chat_id = row[0]
+            Settings.update({
+                chat_id: get_ignored_languages(chat_id)
+            })
+
+        for row in DATABASE.execute('SELECT * FROM Links'):
+            ID, Link, Category, Name, KnownUploads, LastCheck = row
+
+            # Get every ChatID that is following the link
+            ChatIDs = DATABASE.execute(
+                f'SELECT ChatID FROM Follows WHERE LinkID == {ID};'
+            ).fetchall()
+
+            # If no one is following the link, delete it
+            if len(ChatIDs) == 0:
+                DATABASE.execute(
+                    f'DELETE FROM Links WHERE ID == {ID};'
+                ).fetchall()
+
+                DATABASE.commit()  # Commit changes
+
+                continue
 
             # Init to arbitrary datetime
             if LastCheck is None:
                 LastCheck = datetime(2020, 1, 1)
+            else:
+                LastCheck = datetime.strptime(LastCheck, '%Y/%m/%d %H:%M:%S')
 
             # If it was checked less than an hour ago, skip
             LastCheckSeconds = (datetime.now() - LastCheck).total_seconds()
@@ -87,30 +100,26 @@ with requests.Session() as SESSION:
                     UploadLink = gallery_div.find('a')['href']
 
                     # Upload's link insertion in the database for duplication avoidance
-                    DATABASE.execute(f'UPDATE Data SET KnownUploads = KnownUploads || ",{UploadLink}" WHERE ID == {ID};')
+                    DATABASE.execute(f'UPDATE Links SET KnownUploads = KnownUploads || \',{UploadLink}\' WHERE ID == {ID};')
                     PendingTransaction = True
 
-                    # Current div category, es: Artist, Category, Group
-                    category = Link.split('/')[3].title()
-
                     # Constructing message's content. Will be sent from Telegram to the users
-                    text = f'New {category} upload: [{Name}](https://nhentai.net{UploadLink})'
+                    text = f'New {Category} upload: [{Name}](https://nhentai.net{UploadLink})'
 
                     # For every chat's ID following this Group/Artist/Category/Character
-                    for ChatID in ChatIDs.split(','):
+                    for result in ChatIDs:
+                        chat_id = result[0]
                         # Check if the user is avoiding a specific languages
-                        if any([language in gallery_div['data-tags'] for language in Settings[ChatID]]):
+                        if any([language in gallery_div['data-tags'] for language in Settings[chat_id]]):
                             continue
                         # Else, insert in the database a new message to send
                         DATABASE.execute(
-                            f'INSERT INTO MESSAGES (ChatID, Content) VALUES ({ChatID}, \'{text}\');'
+                            f'INSERT INTO MESSAGES (ChatID, Content) VALUES ({chat_id}, \'{text}\');'
                         )
-                    else:
-                        break  # Breaking when finding a duplicate
 
                 # Updating LastCheck to current datetime and update relative row
                 LastCheck = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
-                DATABASE.execute(f'UPDATE Data SET LastCheck = \'{LastCheck}\' WHERE ID == {ID};')
+                DATABASE.execute(f'UPDATE Links SET LastCheck = \'{LastCheck}\' WHERE ID == {ID};')
 
                 DATABASE.commit()  # Commit changes
             except Exception:

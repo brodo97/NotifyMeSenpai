@@ -104,7 +104,7 @@ def remove(update, context):
 
 
 # /settings COMMAND
-def settings(update, context):  # TODO
+def settings(update, context):
     user = update.message.from_user.id  # Telegram User's ID
 
     # Call VIEW's settings function
