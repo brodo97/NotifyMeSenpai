@@ -108,7 +108,7 @@ class Database:
             )
 
         settings_to_insert = ', '.join(settings_to_insert)  # Join values on ', '
-        print(f'INSERT INTO UserSettings (ChatID, Setting) VALUES {settings_to_insert};')
+
         # Insert settings
         self.conn.execute(f'INSERT INTO UserSettings (ChatID, Setting) VALUES {settings_to_insert};')
 
@@ -130,16 +130,18 @@ class Database:
         :return: User's links data parsed as Dict
         """
 
-        # Get every ChatIDs' row containing user_id
+        # Get every row containing user_id
         results = self.conn.execute(
-            f'SELECT ID, Name, Link FROM Data WHERE ChatIDs LIKE \'%{user_id}%\' ORDER BY ID ASC;'
+            f'SELECT L.ID, L.Name, L.Link '
+            f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
+            f'WHERE F.ChatID == {user_id} ORDER BY L.ID ASC;'
         )
 
         following_list = {}
 
         # For every result (row of the database) in results (list of rows)
         for result in results:
-            link_id, name, link = result # Unpack query result into separate variables
+            link_id, name, link = result  # Unpack query result into separate variables
 
             parsed_link = urlparse(link)  # urlparse the link
             path_args = parsed_link.path.split('/')  # Split path into a list
@@ -196,21 +198,23 @@ class Database:
                 not any([cat == category for cat in ALLOWED_CATEGORIES]):
             return 0, f'*{link}* is not a valid link!'
 
+        category = category.title()
+
         # Get the amount of links the user can follow
         limit = self.insert_user(user_id)
 
         # Get the amount of links the user is following
         amount = self.conn.execute(
-            f'SELECT COUNT(*) FROM Data WHERE ChatIDs LIKE \'%{user_id}%\';'
+            f'SELECT COUNT(*) FROM Follows WHERE ChatID == {user_id};'
         ).fetchone()[0]
 
         # If the user reached the max amount of followable links, return error
-        if limit <= amount:
+        if amount >= limit:
             return 0, f'You\'re following too much links'
 
         # Get existing row data, if link exists
         exists = self.conn.execute(
-            f'SELECT * FROM Data WHERE Link LIKE \'%{link}%\' LIMIT 1;'
+            f'SELECT ID, Name FROM Links WHERE Link LIKE \'%{link}%\' LIMIT 1;'
         ).fetchone()
 
         # If the link exists in the database, add it
@@ -219,51 +223,63 @@ class Database:
             with requests.Session() as SESSION:
                 response = SESSION.get(link)  # Do a request to the link using current session
 
+                # If the response's status code is 404, return an error
+                if response.status_code == 404:
+                    return 0, f'{link} not found'
+
                 # If the response's status code differ from 200, return an error
                 if response.status_code != 200:
-                    return -1, f'Error while parsing *{link}*\'s data'
+                    return -1, f'Error while parsing {link}\'s data'
 
                 soup = BeautifulSoup(response.content, 'html.parser')  # Pass response's content to BeautifulSoup
 
                 try:
-                    name = soup.find('span', 'name').text          # Artist/Group/Character/etc...'s name
-                    last_div = soup.find_all('div', 'gallery')[0]  # Latest upload
-                    last_upload_link = last_div.find('a')['href']  # Latest upload's link
+                    name = soup.find('span', 'name').text   # Artist/Group/Character/etc...'s name
+
+                    last_divs = soup.find_all('div', 'gallery')                       # First page uploads
+                    last_upload_links = [div.find('a')['href'] for div in last_divs]  # First page uploads' links
+                    last_upload_links = ','.join(last_upload_links)                   # Join all links on ','
 
                     # Updating LastCheck to current datetime and update relative row
                     last_check = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
 
                     # New link database insertion
-                    self.conn.execute(
-                        f'INSERT INTO Data (ChatIDs, Link, Name, KnownUploads, LastCheck) '
-                        f'VALUES ({user_id}, \'{link}\', \'{name}\', \'{last_upload_link}\', \'{last_check}\');'
+                    cursor = self.conn.cursor()  # Use cursor to later get INSERT's lastrowid
+                    cursor.execute(
+                        f'INSERT INTO Links (Link, Category, Name, KnownUploads, LastCheck) '
+                        f'VALUES (\'{link}\', \'{category}\', \'{name}\', \'{last_upload_links}\', \'{last_check}\');'
                     )
+
+                    cursor.execute(
+                        f'INSERT INTO Follows (ChatID, LinkID) '
+                        f'VALUES ({user_id}, {cursor.lastrowid});'
+                    )
+
                     self.conn.commit()  # Commit changes and inform the user
 
                     return 1, f'You\'re now following [{name}]({link})'
                 except:
                     traceback.print_exc()
-                    return -1, f'Error while parsing *{link}*\'s data'
+                    return -1, f'Error while parsing {link}\'s data'
 
         # If the link exists in the database
         else:
             link_id = exists[0]                        # Link's unique ID in the table
             category = parsed_link.path.split('/')[1]  # Link category
-            name = exists[3]                           # Artist/Group/Character/etc...'s name
+            name = exists[1]                           # Artist/Group/Character/etc...'s name
 
             # Check if user_id is already following this link
             following = self.conn.execute(
-                f'SELECT * FROM Data WHERE ID == {link_id} AND ChatIDs LIKE \'%{user_id}%\' LIMIT 1;'
+                f'SELECT * FROM Follows WHERE ChatID == {user_id} AND LinkID == {link_id} LIMIT 1;'
             ).fetchone() is not None
 
-            # If the user is following the link, return error. Else, add user_id in link's ChatIDs list
+            # If the user is following the link, return error. Else, insert it
             if following is True:
                 return 0, f'You\'re already following {category}: *{name}*'
             else:
                 # Update row cell
                 self.conn.execute(
-                    f'UPDATE Data SET ChatIDs = ChatIDs || \',\' || {user_id} '
-                    f'WHERE ID == {link_id};'
+                    f'INSERT INTO Follows (ChatID, LinkID) VALUES ({user_id}, {link_id})'
                 )
 
                 self.conn.commit()  # Commit changes
@@ -280,34 +296,26 @@ class Database:
         :return: A Tuple containing status as Integer {0:Error, 1:OK} and some data as String
         """
 
-        # Get existing row data, if link_id exists and user_id is in ChatIDs
+        # Get existing row data, if link_id exists and user_id is following it
         exists = self.conn.execute(
-            f'SELECT Name, ChatIDs FROM Data WHERE ID == {link_id} AND ChatIDs LIKE \'%{user_id}%\';'
+            f'SELECT L.Name '
+            f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
+            f'WHERE F.ChatID == {user_id} AND L.ID == {link_id};'
         ).fetchone()
 
         # If it doesn't exist or user is not following it, return error
         if exists is None:
             return 0, 'Not found'
 
-        # Unpack query result into separate variables
-        name, chat_ids = exists
+        # Delete follow rule
+        self.conn.execute(
+            f'DELETE FROM Follows WHERE ChatID == {user_id} AND LinkID == {link_id};'
+        )
 
-        chat_ids = chat_ids.split(',')  # Splitting string to list
-        user_id = str(user_id)          # Converting user_id from any to string
-        chat_ids.remove(user_id)        # Removing user_id from chat_ids
-
-        # If there are no chat_id following the link: delete the row
-        if len(chat_ids) == 0:
-            self.conn.execute(
-                f'DELETE FROM Data WHERE ID == {link_id};'
-            )
-        else:
-            chat_ids = ','.join(chat_ids)  # Joining new chat_ids string
-            # Update row cell
-            self.conn.execute(
-                f'UPDATE Data SET ChatIDs = \'{chat_ids}\' WHERE ID == {link_id};'
-            )
         self.conn.commit()  # Commit changes
+
+        # Unpack query result
+        name = exists[0]
 
         return 1, f'You unfollowed *{name}*'
 
@@ -577,7 +585,7 @@ class View:
 
         return 1, remove_data
 
-    def settings(self, user_id: int, setting_id: int = None, value: str = None):  # TODO
+    def settings(self, user_id: int, setting_id: int = None, value: str = None):
         """
         Build the body of the /remove message
         It contains the list of links the user is following
