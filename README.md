@@ -19,6 +19,7 @@ effectively clogging the bot and making it unusable/unstable.
 
 ### Future features
 Just a list of features I would like to implement:
+- [ ] The code require some HEAVY OPTIMIZATIONS
 - [ ] Administration tools (Like /ban)
 - [ ] Logger to keep track of what the logic is doing
 - [ ] Tag/Character/Parody/Artist Leaderboard. What people follow the most
