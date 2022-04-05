@@ -21,6 +21,7 @@ effectively clogging the bot and making it unusable/unstable.
 Just a list of features I would like to implement:
 - [ ] Administration tools (Like /ban)
 - [ ] Logger to keep track of what the logic is doing
+- [ ] Tag/Character/Parody/Artist Leaderboard. What people follow the most
 - [ ] Ideas... ?
 
 ### Current state of the project
@@ -55,4 +56,4 @@ I'm seeking bug reports and feature requests.
 # Donate
 If this project helped you, you can buy me a beer or a cup of coffee! :wink:
 
-[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](https://www.paypal.me/brodo97)
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](https://www.paypal.me/notifymesenpai)

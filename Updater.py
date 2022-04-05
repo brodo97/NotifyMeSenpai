@@ -38,18 +38,21 @@ with requests.Session() as SESSION:
             })
 
         for row in DATABASE.execute('SELECT * FROM Links'):
-            ID, Link, Category, Name, KnownUploads, LastCheck = row
+            ID, Link, Category, Name, LastCheck = row
 
             # Get every ChatID that is following the link
             ChatIDs = DATABASE.execute(
                 f'SELECT ChatID FROM Follows WHERE LinkID == {ID};'
             ).fetchall()
 
-            # If no one is following the link, delete it
+            # If no one is following the link, delete it. And delete all known upload links
             if len(ChatIDs) == 0:
                 DATABASE.execute(
                     f'DELETE FROM Links WHERE ID == {ID};'
-                ).fetchall()
+                )
+                DATABASE.execute(
+                    f'DELETE FROM KnownUploads WHERE LinkID == {ID};'
+                )
 
                 DATABASE.commit()  # Commit changes
 
@@ -78,29 +81,41 @@ with requests.Session() as SESSION:
 
             # If the response's status code differ from 200, continue
             if RESPONSE.status_code != 200:
-                print(f'ERROR - check_nhentai(): {Link} returned status code = {RESPONSE.status_code}')
+                print(f'ERROR: {Link} returned status code = {RESPONSE.status_code}')
                 continue
 
             SOUP = BeautifulSoup(RESPONSE.content, 'html.parser')  # Pass response's content to BeautifulSoup
 
             # If response's content is malformed, continue
             if SOUP is None:
-                print(f'ERROR - check_nhentai(): BeautifulSoup error')
+                print(f'ERROR: BeautifulSoup error')
                 continue
+
+            # Get the list of known uploads links
+            KnownUploads = []
+            # For every link in the database
+            for known_row in DATABASE.execute(
+                f'SELECT Upload FROM KnownUploads WHERE LinkID == {ID};'
+            ):
+                KnownUploads.append(known_row[0])  # Append it to the list
 
             PendingTransaction = False  # Using this for rollback in case of an exception
             try:
                 # For every upload panel/div
                 for gallery_div in SOUP.find_all('div', 'gallery'):
-                    # If is known, continue
-                    if gallery_div.find('a')['href'] in KnownUploads:
-                        continue
-
                     # Current div link, es: /g/000000
                     UploadLink = gallery_div.find('a')['href']
 
+                    # If is known, continue
+                    if UploadLink in KnownUploads:
+                        continue
+
+                    KnownUploads.append(UploadLink)
+
                     # Upload's link insertion in the database for duplication avoidance
-                    DATABASE.execute(f'UPDATE Links SET KnownUploads = KnownUploads || \',{UploadLink}\' WHERE ID == {ID};')
+                    DATABASE.execute(
+                        f'INSERT INTO KnownUploads (LinkID, Upload) VALUES ({ID}, \'{UploadLink}\');'
+                    )
                     PendingTransaction = True
 
                     # Constructing message's content. Will be sent from Telegram to the users

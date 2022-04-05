@@ -133,15 +133,17 @@ def settings(update, context):
 
     # For every link's ID and name
     for setting_id, setting_data in data.items():
+        setting = setting_data['Setting']
+        setting_name = setting_data['SettingName']
         current_setting = setting_data['CurrentSettings']
-        setting_options = setting_data['SettingOptions']
 
         # Example
-        # Button = Name with callback_data = "setting|5". 5 is the setting_id to be changed (if selected by the user)
+        # Button = Name with callback_data = "show_setting|5/skip_language". 5 is the setting_id to be
+        # changed (if selected by the user). skip_language is the setting's name in the database
         setting_button = [
             InlineKeyboardButton(
-                current_setting,
-                callback_data=f'show_setting|{setting_id}_{setting_options}'
+                f'{setting_name}: {current_setting}',
+                callback_data=f'show_setting|{setting_id}/{setting_name}/{setting}'
             )
         ]
 
@@ -156,7 +158,7 @@ def settings(update, context):
     ])
 
     # "Render" the button list
-    update.message.reply_text('What do you want to change?', reply_markup=InlineKeyboardMarkup(buttons_layout))
+    update.message.reply_text('What setting do you want to change?', reply_markup=InlineKeyboardMarkup(buttons_layout))
 
 
 # Manage buttons
@@ -185,36 +187,45 @@ def button(update, context):
 
     # If action is 'show_setting', build the next phase buttons
     if action == 'show_setting':
-        setting_id, setting_options = action_arguments.split('_')  # Split setting's id and option on '_'
-        setting_options = setting_options.split(',')               # Split setting's options on ','
+        setting_id, setting_name, setting = action_arguments.split('/')  # Split setting's id and option on '_'
+
+        # Call the VIEW.settings function to get options
+        _, data = VIEW.settings(user_id=user, setting=setting)
 
         buttons_layout = []
 
         # For every option
-        for option in setting_options:
-            option_name, option_value = option.split(':')  # Split option's name and value on ':'
-
+        for option_name, option_value in data.items():
             # Append the option to buttons_layout
             buttons_layout.append([
                 InlineKeyboardButton(
                     f'{option_name}',
-                    callback_data=f'set_setting|{setting_id}_{option_value}'
+                    callback_data=f'set_setting|{setting_id}/{option_value}'
                 )
             ])
 
+        # Add an exit button
+        buttons_layout.append([
+            InlineKeyboardButton(
+                'Exit',
+                callback_data=f'exit|0'
+            )
+        ])
+
         # Edit the last message (old_msg_id)
         context.bot.edit_message_text(
-            f'Click to enable or disable the corresponding setting',
+            f'Enable/Disable *{setting_name}*',
             reply_markup=InlineKeyboardMarkup(buttons_layout),
             chat_id=user,
-            message_id=old_msg_id
+            message_id=old_msg_id,
+            parse_mode=MD
         )
 
         return
 
     # If action is 'set_setting'
     if action == 'set_setting':
-        setting_id, setting_value = action_arguments.split('_')  # Split setting's id and value on '_'
+        setting_id, setting_value = action_arguments.split('/')  # Split setting's id and value on '_'
 
         # Call the VIEW.settings function to edit the value
         result, text = VIEW.settings(user_id=user, setting_id=setting_id, value=setting_value)

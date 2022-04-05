@@ -235,9 +235,8 @@ class Database:
                 try:
                     name = soup.find('span', 'name').text   # Artist/Group/Character/etc...'s name
 
-                    last_divs = soup.find_all('div', 'gallery')                       # First page uploads
-                    last_upload_links = [div.find('a')['href'] for div in last_divs]  # First page uploads' links
-                    last_upload_links = ','.join(last_upload_links)                   # Join all links on ','
+                    last_divs = soup.find_all('div', 'gallery')                   # First page uploads
+                    known_uploads = [div.find('a')['href'] for div in last_divs]  # First page uploads' links
 
                     # Updating LastCheck to current datetime and update relative row
                     last_check = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
@@ -245,14 +244,25 @@ class Database:
                     # New link database insertion
                     cursor = self.conn.cursor()  # Use cursor to later get INSERT's lastrowid
                     cursor.execute(
-                        f'INSERT INTO Links (Link, Category, Name, KnownUploads, LastCheck) '
-                        f'VALUES (\'{link}\', \'{category}\', \'{name}\', \'{last_upload_links}\', \'{last_check}\');'
+                        f'INSERT INTO Links (Link, Category, Name, LastCheck) '
+                        f'VALUES (\'{link}\', \'{category}\', \'{name}\', \'{last_check}\');'
                     )
 
+                    # Insert new follow rule: UserID <-> LinkID
                     cursor.execute(
                         f'INSERT INTO Follows (ChatID, LinkID) '
                         f'VALUES ({user_id}, {cursor.lastrowid});'
                     )
+
+                    # Insert all known uploads for future duplication avoidance
+                    known_uploads_query = 'INSERT INTO KnownUploads (LinkID, Upload) VALUES '  # Prepare query
+                    # Prepare values
+                    known_uploads = [
+                        f'({cursor.lastrowid}, \'{upload}\')' for upload in known_uploads
+                    ]
+                    known_uploads_query += ', '.join(known_uploads)  # Join query + values
+
+                    cursor.execute(known_uploads_query)  # Execute query
 
                     self.conn.commit()  # Commit changes and inform the user
 
@@ -472,7 +482,7 @@ class View:
                f'\n/remove to remove it' \
                f'\n\nUse /settings to change some notification\'s parameter' \
                f'\n\nYou can follow up to *{amount}* links' \
-               f'\n\nIf you really like this bot, you can buy me a cup of coffee! https://www.paypal.me/brodo97'
+               f'\n\nIf you really like this bot, you can buy me a cup of coffee! https://www.paypal.me/notifymesenpai'
 
         return text
 
@@ -586,26 +596,34 @@ class View:
 
         return 1, remove_data
 
-    def settings(self, user_id: int, setting_id: int = None, value: str = None):
+    def settings(self, user_id: int, setting: str = None, setting_id: int = None, value: str = None):
         """
         Build the body of the /remove message
         It contains the list of links the user is following
 
         :param user_id: Telegram User's ID
-        :param setting_id: Setting's ID to be changed, if None: return list of available settings
-        :param value: Setting's value, if None: return list of available settings
+        :param setting: Setting's name to get corresponding options
+        :param setting_id: Setting's ID to be changed
+        :param value: Setting's value
 
         :return: A Tuple containing status as Integer {-1:Unexpected Error, 0:Error, 1:OK} and the messages as:
-                 String if return status in [-1, 0] or setting_id is not None
-                 Dict if return status = 1 and setting_id is None/not used
+                 String
+                 Dict
         """
 
         # If setting_id is not None: try to change the setting
-        if setting_id is not None:
+        if value is not None:
             return self.database.update_users_setting(user_id, setting_id, value)
 
         # If setting_id is not present: get user's data
         data = self.database.get_users_settings(user_id)
+
+        if setting is not None:
+            options = {
+                name: value
+                for name, value in self.database.available_settings_dictionary[setting]['NameValue'].items()
+            }
+            return 1, options
 
         # settings_data will contain buttons' data
         settings_data = {}
@@ -618,9 +636,9 @@ class View:
                 setting = setting_data['Setting']
                 setting_name = self.database.available_settings_dictionary[setting]['Name']
 
-                current_setting = f'{setting_name}: '  # Button text showing current settings
+                current_setting = 'Nothing set'  # Current setting's value
 
-                # If the setting has values, create the button text
+                # If the setting has values, change the text of current_setting
                 if setting_data['Value'] != '' and setting_data['Value'] is not None:
                     values = setting_data['Value'].split(',')
 
@@ -631,23 +649,14 @@ class View:
                     ]
                     value_names = ', '.join(value_names)  # Join with ', '
 
-                    current_setting += f'{value_names}'
-                else:
-                    # If there is no set value: set the button's text to 'Nothing set'
-                    current_setting += 'Nothing set'
-
-                # List of available options
-                options = [
-                    f'{name}:{value}'
-                    for name, value in self.database.available_settings_dictionary[setting]['NameValue'].items()
-                ]
-                options = ','.join(options)
+                    current_setting = f'{value_names}'
 
                 # Updating settings dict
                 settings_data.update({
                     setting_id: {
-                        'CurrentSettings': current_setting,
-                        'SettingOptions': options
+                        'Setting': setting,
+                        'SettingName': setting_name,
+                        'CurrentSettings': current_setting
                     }
                 })
         else:
