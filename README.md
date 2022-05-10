@@ -1,4 +1,5 @@
-`NotifyMeSenpai` is a useful Telegram bot to stay up to date with your favourite nhentai Artists, Parodies, Tags, Characters and Groups!
+`NotifyMeSenpai` is a useful Telegram bot to stay up to date with your favourite nhentai Artists, Parodies, Tags,
+Characters and Groups!
 
 ### How to use it
 Just subscribe to [NotifyMeSenpai](https://t.me/notifymesenpai_bot) and start playing around!
@@ -53,8 +54,12 @@ user
 # Contributing to this project
 I'm seeking bug reports and feature requests.
 
+# Other notes
+[Handy fix](https://github.com/PostgresApp/PostgresApp/issues/313#issuecomment-192461641) for PostgresSQL's error:
+`psql: FATAL: role "USER" does not exist`
 
 # Donate
 If this project helped you, you can buy me a beer or a cup of coffee! :wink:
 
-[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](https://www.paypal.me/notifymesenpai)
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](
+https://www.paypal.me/notifymesenpai)
