@@ -19,6 +19,7 @@ effectively clogging the bot and making it unusable/unstable.
 
 ### Future features
 Just a list of features I would like to implement:
+- [ ] Change from SQLite3 to PostgresSQL. Will fix #7
 - [ ] Administration tools (Like /ban)
 - [ ] Logger to keep track of what the logic is doing
 - [ ] Tag/Character/Parody/Artist Leaderboard. What people follow the most

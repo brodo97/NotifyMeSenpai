@@ -3,3 +3,4 @@ Config.py
 Test.py
 venv
 data/Database.db
+data/Database.db.sql
