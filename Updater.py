@@ -8,18 +8,20 @@ from Config import CHECK_TIME_SECONDS
 from Classes import Database
 
 DATABASE = Database()
-DATABASE = DATABASE.conn
+DB_CONN = DATABASE.conn
+DB_CUR = DATABASE.cur
 
 
 # Get users' filters
 def get_ignored_languages(chat_id: int):
     # Get ignore_languages from Settings table (if exists)
-    languages = DATABASE.execute(
-        f'SELECT Value FROM UserSettings WHERE ChatID == {chat_id} AND Setting LIKE \'skip_languages\''
-    ).fetchone()
+    DB_CUR.execute(
+        f'SELECT Value FROM UserSettings WHERE ChatID = {chat_id} AND Setting LIKE \'skip_languages\''
+    )
+    languages = DB_CUR.fetchone()
 
     # And if not exists then []
-    languages = [] if languages[0] is None else languages[0].split(',')
+    languages = [] if languages is None or languages[0] is None else languages[0]
 
     return languages
 
@@ -31,38 +33,44 @@ with requests.Session() as SESSION:
         SleepTime = CHECK_TIME_SECONDS
 
         # Update Settings variable
-        for row in DATABASE.execute('SELECT ID FROM Users'):
+        DB_CUR.execute('SELECT ID FROM Users')
+        Users_IDs = DB_CUR.fetchall()
+        for row in Users_IDs:
             chat_id = row[0]
             Settings.update({
                 chat_id: get_ignored_languages(chat_id)
             })
 
-        for row in DATABASE.execute('SELECT * FROM Links'):
+        DB_CUR.execute('SELECT * FROM Links')
+        Links_Data = DB_CUR.fetchall()
+        for row in Links_Data:
             ID, Link, Category, Name, LastCheck = row
 
             # Get every ChatID that is following the link
-            ChatIDs = DATABASE.execute(
-                f'SELECT ChatID FROM Follows WHERE LinkID == {ID};'
-            ).fetchall()
+            DB_CUR.execute(
+                f'SELECT ChatID FROM Follows WHERE LinkID = %s;',
+                (ID,)
+            )
+            ChatIDs = DB_CUR.fetchall()
 
             # If no one is following the link, delete it. And delete all known upload links
             if len(ChatIDs) == 0:
-                DATABASE.execute(
-                    f'DELETE FROM Links WHERE ID == {ID};'
+                DB_CUR.execute(
+                    f'DELETE FROM Links WHERE ID = %s;',
+                    (ID,)
                 )
-                DATABASE.execute(
-                    f'DELETE FROM KnownUploads WHERE LinkID == {ID};'
+                DB_CUR.execute(
+                    f'DELETE FROM KnownUploads WHERE LinkID = %s;',
+                    (ID,)
                 )
 
-                DATABASE.commit()  # Commit changes
+                DB_CONN.commit()  # Commit changes
 
                 continue
 
             # Init to arbitrary datetime
             if LastCheck is None:
                 LastCheck = datetime(2020, 1, 1)
-            else:
-                LastCheck = datetime.strptime(LastCheck, '%Y/%m/%d %H:%M:%S')
 
             # If it was checked less than an hour ago, skip
             LastCheckSeconds = (datetime.now() - LastCheck).total_seconds()
@@ -94,9 +102,12 @@ with requests.Session() as SESSION:
             # Get the list of known uploads links
             KnownUploads = []
             # For every link in the database
-            for known_row in DATABASE.execute(
-                f'SELECT Upload FROM KnownUploads WHERE LinkID == {ID};'
-            ):
+            DB_CUR.execute(
+                f'SELECT Upload FROM KnownUploads WHERE LinkID = %s;',
+                (ID,)
+            )
+            KnownRows = DB_CUR.fetchall()
+            for known_row in KnownRows:
                 KnownUploads.append(known_row[0])  # Append it to the list
 
             PendingTransaction = False  # Using this for rollback in case of an exception
@@ -113,8 +124,9 @@ with requests.Session() as SESSION:
                     KnownUploads.append(UploadLink)
 
                     # Upload's link insertion in the database for duplication avoidance
-                    DATABASE.execute(
-                        f'INSERT INTO KnownUploads (LinkID, Upload) VALUES ({ID}, \'{UploadLink}\');'
+                    DB_CUR.execute(
+                        f'INSERT INTO KnownUploads (LinkID, Upload) VALUES (%s, %s);',
+                        (ID, UploadLink)
                     )
                     PendingTransaction = True
 
@@ -128,19 +140,22 @@ with requests.Session() as SESSION:
                         if any([language in gallery_div['data-tags'] for language in Settings[chat_id]]):
                             continue
                         # Else, insert in the database a new message to send
-                        DATABASE.execute(
-                            f'INSERT INTO MESSAGES (ChatID, Content) VALUES ({chat_id}, \'{text}\');'
+                        DB_CUR.execute(
+                            f'INSERT INTO MESSAGES (ChatID, Content) VALUES (%s, %s);',
+                            (chat_id, text)
                         )
 
                 # Updating LastCheck to current datetime and update relative row
-                LastCheck = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
-                DATABASE.execute(f'UPDATE Links SET LastCheck = \'{LastCheck}\' WHERE ID == {ID};')
+                DB_CUR.execute(
+                    f'UPDATE Links SET LastCheck = %s WHERE ID = %s;',
+                    (datetime.now(), ID)
+                )
 
-                DATABASE.commit()  # Commit changes
+                DB_CONN.commit()  # Commit changes
             except Exception:
                 # If there were pending transaction, rollback. Maybe it will upload at next cycle
                 if PendingTransaction is True:
-                    DATABASE.execute('rollback')
+                    DB_CUR.execute('rollback')
                 traceback.print_exc()
 
         time.sleep(SleepTime)

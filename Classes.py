@@ -1,5 +1,5 @@
 #! /usr/bin/python3
-import sqlite3
+import psycopg2
 import traceback
 
 import requests
@@ -7,7 +7,7 @@ import re
 from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urlparse
-from Config import ALLOWED_CATEGORIES, DATABASE_PATH
+from Config import ALLOWED_CATEGORIES, DATABASE_USER, DATABASE_PWD, DATABASE_HOST
 
 
 class Database:
@@ -21,8 +21,9 @@ class Database:
         r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-    def __init__(self, db_path=DATABASE_PATH):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+    def __init__(self, db_host=DATABASE_HOST, db_user=DATABASE_USER, db_pwd=DATABASE_PWD):
+        self.conn = psycopg2.connect(f"host={db_host} dbname=database user={db_user} password={db_pwd}")
+        self.cur = self.conn.cursor()
         self.available_settings_dictionary = {}
         self.update_settings()
 
@@ -35,17 +36,16 @@ class Database:
         :return: Nothing
         """
 
-        # Get settings list and other informations
-        results = self.conn.execute(
+        # Get settings list and other information
+        self.cur.execute(
             f'SELECT Setting, SettingName, SetValues, ValuesNames '
             f'FROM Settings'
         )
+        results = self.cur.fetchall()
 
-        # For every setting (row) in results (list of rows)
+        # For every setting (row) in the list of rows
         for result in results:
             setting, name, values, values_names = result  # Unpack query result into separate variables
-            values = values.split(',')                    # Split into separate values on ,
-            values_names = values_names.split(',')        # Split into separate names on ,
 
             # Create a dict with the association Setting's parameter name: Setting's parameter value
             setting_options_nv = {
@@ -78,48 +78,44 @@ class Database:
         """
 
         # Get the amount of links the user can follow, if it exists
-        limit = self.conn.execute(
-            f'SELECT LinksLimit FROM Users WHERE ID == {user_id};'
-        ).fetchone()
+        self.cur.execute(
+            f'SELECT LinksLimit FROM Users WHERE ID = %s;',
+            (user_id,)
+        )
+        limit = self.cur.fetchone()
 
         # If limit is None, user exists.
         if limit is not None:
             return int(limit[0])
 
         # Insert user into the database
-        self.conn.execute(
-            f'INSERT INTO Users (ID) VALUES ({user_id});'
+        self.cur.execute(
+            f'INSERT INTO Users (ID) VALUES (%s);',
+            (user_id,)
         )
 
-        # Get settings list and other informations
-        results = self.conn.execute(
+        # Get settings list and other information
+        self.cur.execute(
             f'SELECT Setting '
             f'FROM Settings'
         )
-
-        settings_to_insert = []
-
-        # For every setting (row) in results (list of rows)
-        for result in results:
-            setting = result[0]
-            # Init every setting for the user
-            settings_to_insert.append(
-                f'({user_id}, \'{setting}\')'
-            )
-
-        settings_to_insert = ', '.join(settings_to_insert)  # Join values on ', '
+        results = self.cur.fetchall()
 
         # Insert settings
-        self.conn.execute(f'INSERT INTO UserSettings (ChatID, Setting) VALUES {settings_to_insert};')
+        self.cur.executemany(
+            f'INSERT INTO UserSettings (ChatID, Setting) VALUES (%s, %s);',
+            [(user_id, setting[0]) for setting in results]
+        )
 
         self.conn.commit()  # Commit changes
 
         # Get the amount of links the user can follow
-        limit = self.conn.execute(
-            f'SELECT LinksLimit FROM Users WHERE ID == {user_id};'
-        ).fetchone()
+        self.cur.execute(
+            f'SELECT LinksLimit FROM Users WHERE ID = %s;',
+            (user_id,)
+        )
 
-        return int(limit[0])
+        return int(self.cur.fetchone()[0])
 
     def get_users_uploads(self, user_id: int):
         """
@@ -131,11 +127,13 @@ class Database:
         """
 
         # Get every row containing user_id
-        results = self.conn.execute(
+        self.cur.execute(
             f'SELECT L.ID, L.Name, L.Category, L.Link '
             f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
-            f'WHERE F.ChatID == {user_id} ORDER BY L.Category ASC;'
+            f'WHERE F.ChatID = %s ORDER BY L.Category ASC;',
+            (user_id,)
         )
+        results = self.cur.fetchall()
 
         following_list = {}
 
@@ -203,18 +201,22 @@ class Database:
         limit = self.insert_user(user_id)
 
         # Get the amount of links the user is following
-        amount = self.conn.execute(
-            f'SELECT COUNT(*) FROM Follows WHERE ChatID == {user_id};'
-        ).fetchone()[0]
+        self.cur.execute(
+            f'SELECT COUNT(*) FROM Follows WHERE ChatID = %s;',
+            (user_id,)
+        )
+        amount = self.cur.fetchone()[0]
 
         # If the user reached the max amount of followable links, return error
         if amount >= limit:
             return 0, f'You\'re following too much links'
 
         # Get existing row data, if link exists
-        exists = self.conn.execute(
-            f'SELECT ID, Name FROM Links WHERE Link LIKE \'%{link}%\' LIMIT 1;'
-        ).fetchone()
+        self.cur.execute(
+            f'SELECT ID, Name FROM Links WHERE Link LIKE %s LIMIT 1;',
+            (f'%{link}%',)
+        )
+        exists = self.cur.fetchone()
 
         # If the link exists in the database, add it
         if exists is None:
@@ -238,31 +240,27 @@ class Database:
                     last_divs = soup.find_all('div', 'gallery')                   # First page uploads
                     known_uploads = [div.find('a')['href'] for div in last_divs]  # First page uploads' links
 
-                    # Updating LastCheck to current datetime and update relative row
-                    last_check = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
-
-                    # New link database insertion
-                    cursor = self.conn.cursor()  # Use cursor to later get INSERT's lastrowid
-                    cursor.execute(
+                    # New link database insertion and return inserted link's ID
+                    self.cur.execute(
                         f'INSERT INTO Links (Link, Category, Name, LastCheck) '
-                        f'VALUES (\'{link}\', \'{category}\', \'{name}\', \'{last_check}\');'
+                        f'VALUES (%s, %s, %s, %s) RETURNING ID;',
+                        (link, category, name, datetime.now())
                     )
 
+                    # Previous insert's incremental ID
+                    last_row_id = self.cur.fetchone()[0]
+
                     # Insert new follow rule: UserID <-> LinkID
-                    cursor.execute(
+                    self.cur.execute(
                         f'INSERT INTO Follows (ChatID, LinkID) '
-                        f'VALUES ({user_id}, {cursor.lastrowid});'
+                        f'VALUES (%s, %s);',
+                        (user_id, last_row_id)
                     )
 
                     # Insert all known uploads for future duplication avoidance
-                    known_uploads_query = 'INSERT INTO KnownUploads (LinkID, Upload) VALUES '  # Prepare query
-                    # Prepare values
-                    known_uploads = [
-                        f'({cursor.lastrowid}, \'{upload}\')' for upload in known_uploads
-                    ]
-                    known_uploads_query += ', '.join(known_uploads)  # Join query + values
-
-                    cursor.execute(known_uploads_query)  # Execute query
+                    query = f'INSERT INTO KnownUploads (LinkID, Upload) VALUES ({last_row_id}, %s)'  # Prepare query
+                    query_data = [(upload,) for upload in known_uploads]                             # Prepare data
+                    self.cur.executemany(query, query_data)  # Execute query
 
                     self.conn.commit()  # Commit changes and inform the user
 
@@ -278,17 +276,20 @@ class Database:
             name = exists[1]                           # Artist/Group/Character/etc...'s name
 
             # Check if user_id is already following this link
-            following = self.conn.execute(
-                f'SELECT * FROM Follows WHERE ChatID == {user_id} AND LinkID == {link_id} LIMIT 1;'
-            ).fetchone() is not None
+            self.cur.execute(
+                f'SELECT * FROM Follows WHERE ChatID = %s AND LinkID = %s LIMIT 1;',
+                (user_id, link_id)
+            )
+            following = self.cur.fetchone()
 
             # If the user is following the link, return error. Else, insert it
-            if following is True:
+            if following is not None:
                 return 0, f'You\'re already following {category}: *{name}*'
             else:
                 # Update row cell
-                self.conn.execute(
-                    f'INSERT INTO Follows (ChatID, LinkID) VALUES ({user_id}, {link_id})'
+                self.cur.execute(
+                    f'INSERT INTO Follows (ChatID, LinkID) VALUES (%s, %s)',
+                    (user_id, link_id)
                 )
 
                 self.conn.commit()  # Commit changes
@@ -306,19 +307,22 @@ class Database:
         """
 
         # Get existing row data, if link_id exists and user_id is following it
-        exists = self.conn.execute(
+        self.cur.execute(
             f'SELECT L.Name '
             f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
-            f'WHERE F.ChatID == {user_id} AND L.ID == {link_id};'
-        ).fetchone()
+            f'WHERE F.ChatID = %s AND L.ID = %s;',
+            (user_id, link_id)
+        )
+        exists = self.cur.fetchone()
 
         # If it doesn't exist or user is not following it, return error
         if exists is None:
             return 0, 'Not found'
 
         # Delete follow rule
-        self.conn.execute(
-            f'DELETE FROM Follows WHERE ChatID == {user_id} AND LinkID == {link_id};'
+        self.cur.execute(
+            f'DELETE FROM Follows WHERE ChatID = %s AND LinkID = %s;',
+            (user_id, link_id)
         )
 
         self.conn.commit()  # Commit changes
@@ -338,10 +342,12 @@ class Database:
         """
 
         # Get every setting's row containing user_id
-        results = self.conn.execute(
+        self.cur.execute(
             f'SELECT ID, Setting, Value '
-            f'FROM UserSettings WHERE ChatID == {user_id};'
+            f'FROM UserSettings WHERE ChatID = %s;',
+            (user_id,)
         )
+        results = self.cur.fetchall()
 
         settings_list = {}
 
@@ -370,17 +376,17 @@ class Database:
         """
 
         # Get existing row data, should exist
-        result = self.conn.execute(
-            f'SELECT Setting, Value FROM UserSettings WHERE ID == {setting_id} AND ChatID == {user_id} LIMIT 1;'
-        ).fetchone()
+        self.cur.execute(
+            f'SELECT Setting, Value FROM UserSettings WHERE ID = %s AND ChatID = %s LIMIT 1;',
+            (setting_id, user_id)
+        )
+        result = self.cur.fetchone()
 
         setting, values = result    # Unpack values
 
-        # if values is empty, init values = [] to avoid [''] (Empty string in the list)
-        if values == '' or values is None:
+        # if values is None, init values = []
+        if values is None:
             values = []
-        else:
-            values = values.split(',')  # Split different values, if something is present, on ','
 
         # Get corresponding setting's option name
         setting_name = self.available_settings_dictionary[setting]['ValueName'][value]
@@ -396,11 +402,10 @@ class Database:
             values.append(value)
             text += 'enabled'
 
-        values = ','.join(values)  # Pack different values
-
         # Update row cell
-        self.conn.execute(
-            f'UPDATE UserSettings SET Value = \'{values}\' WHERE ID == {setting_id} AND ChatID == {user_id};'
+        self.cur.execute(
+            f'UPDATE UserSettings SET Value = %s WHERE ID = %s AND ChatID = %s;',
+            (values, setting_id, user_id)
         )
 
         self.conn.commit()
@@ -415,10 +420,11 @@ class Database:
         """
 
         # Get every not sent message
-        results = self.conn.execute(
+        self.cur.execute(
             f'SELECT ID, ChatID, Content '
-            f'FROM Messages WHERE Sent == 0;'
+            f'FROM Messages WHERE Sent = FALSE;'
         )
+        results = self.cur.fetchall()
 
         messages = {}
 
@@ -444,8 +450,9 @@ class Database:
         """
 
         # Update row cell
-        self.conn.execute(
-            f'UPDATE Messages SET Sent = 1 WHERE ID == {message_id};'
+        self.cur.execute(
+            f'UPDATE Messages SET Sent = TRUE, SentOn = %s WHERE ID = %s;',
+            (datetime.now(), message_id)
         )
 
         self.conn.commit()
@@ -639,8 +646,8 @@ class View:
                 current_setting = 'Nothing set'  # Current setting's value
 
                 # If the setting has values, change the text of current_setting
-                if setting_data['Value'] != '' and setting_data['Value'] is not None:
-                    values = setting_data['Value'].split(',')
+                if len(setting_data['Value']) != 0 and setting_data['Value'] is not None:
+                    values = setting_data['Value']
 
                     # Set values names list
                     value_names = [
