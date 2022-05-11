@@ -1,0 +1,61 @@
+DROP TABLE IF EXISTS Settings, UserSettings, Users, Follows, Messages, Links, KnownUploads;
+
+CREATE TABLE Settings (
+Setting text NOT NULL UNIQUE,
+SettingName text NOT NULL,
+SetValues text[] NOT NULL,
+ValuesNames text[] NOT NULL,
+PRIMARY KEY(Setting)
+);
+
+CREATE TABLE Users (
+ID bigint NOT NULL UNIQUE,
+LinksLimit integer DEFAULT 75,
+Banned boolean DEFAULT false,
+PRIMARY KEY(ID)
+);
+
+CREATE TABLE UserSettings (
+ID serial NOT NULL,
+ChatID bigint NOT NULL,
+Setting text NOT NULL,
+Value text[],
+PRIMARY KEY(ID),
+FOREIGN KEY(Setting) REFERENCES Settings(Setting),
+FOREIGN KEY(ChatID) REFERENCES Users(ID)
+);
+
+CREATE TABLE Links (
+ID serial NOT NULL,
+Link text NOT NULL UNIQUE,
+Category text NOT NULL,
+Name text NOT NULL,
+LastCheck timestamp DEFAULT NULL,
+PRIMARY KEY(ID)
+);
+
+CREATE TABLE Follows (
+ChatID bigint NOT NULL,
+LinkID integer NOT NULL,
+PRIMARY KEY(ChatID,LinkID),
+FOREIGN KEY(ChatID) REFERENCES Users(ID),
+FOREIGN KEY(LinkID) REFERENCES Links(ID)
+);
+
+CREATE TABLE Messages (
+ID serial NOT NULL,
+ChatID bigint NOT NULL,
+Content text NOT NULL,
+Sent boolean DEFAULT false,
+SentOn timestamp,
+PRIMARY KEY(ID),
+FOREIGN KEY(ChatID) REFERENCES Users(ID)
+);
+
+CREATE TABLE KnownUploads (
+LinkID integer NOT NULL,
+Upload text NOT NULL,
+FOREIGN KEY(LinkID) REFERENCES Links(ID)
+);
+
+INSERT INTO Settings VALUES ('skip_languages','Ignored Languages','{6346,12227,29963}','{Japanese,English,Chinese}');

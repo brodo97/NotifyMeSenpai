@@ -46,8 +46,6 @@ class Database:
         # For every setting (row) in the list of rows
         for result in results:
             setting, name, values, values_names = result  # Unpack query result into separate variables
-            values = values.split(',')                    # Split into separate values on ,
-            values_names = values_names.split(',')        # Split into separate names on ,
 
             # Create a dict with the association Setting's parameter name: Setting's parameter value
             setting_options_nv = {
@@ -81,7 +79,8 @@ class Database:
 
         # Get the amount of links the user can follow, if it exists
         self.cur.execute(
-            f'SELECT LinksLimit FROM Users WHERE ID = {user_id};'
+            f'SELECT LinksLimit FROM Users WHERE ID = %s;',
+            (user_id,)
         )
         limit = self.cur.fetchone()
 
@@ -91,7 +90,8 @@ class Database:
 
         # Insert user into the database
         self.cur.execute(
-            f'INSERT INTO Users (ID) VALUES ({user_id});'
+            f'INSERT INTO Users (ID) VALUES (%s);',
+            (user_id,)
         )
 
         # Get settings list and other information
@@ -101,26 +101,18 @@ class Database:
         )
         results = self.cur.fetchall()
 
-        settings_to_insert = []
-
-        # For every setting (row) in results (list of rows)
-        for result in results:
-            setting = result[0]
-            # Init every setting for the user
-            settings_to_insert.append(
-                f'({user_id}, \'{setting}\')'
-            )
-
-        settings_to_insert = ', '.join(settings_to_insert)  # Join values on ', '
-
         # Insert settings
-        self.cur.execute(f'INSERT INTO UserSettings (ChatID, Setting) VALUES {settings_to_insert};')
+        self.cur.executemany(
+            f'INSERT INTO UserSettings (ChatID, Setting) VALUES (%s, %s);',
+            [(user_id, setting[0]) for setting in results]
+        )
 
         self.conn.commit()  # Commit changes
 
         # Get the amount of links the user can follow
         self.cur.execute(
-            f'SELECT LinksLimit FROM Users WHERE ID = {user_id};'
+            f'SELECT LinksLimit FROM Users WHERE ID = %s;',
+            (user_id,)
         )
 
         return int(self.cur.fetchone()[0])
@@ -135,11 +127,13 @@ class Database:
         """
 
         # Get every row containing user_id
-        results = self.cur.execute(
+        self.cur.execute(
             f'SELECT L.ID, L.Name, L.Category, L.Link '
             f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
-            f'WHERE F.ChatID = {user_id} ORDER BY L.Category ASC;'
+            f'WHERE F.ChatID = %s ORDER BY L.Category ASC;',
+            (user_id,)
         )
+        results = self.cur.fetchall()
 
         following_list = {}
 
@@ -208,7 +202,8 @@ class Database:
 
         # Get the amount of links the user is following
         self.cur.execute(
-            f'SELECT COUNT(*) FROM Follows WHERE ChatID = {user_id};'
+            f'SELECT COUNT(*) FROM Follows WHERE ChatID = %s;',
+            (user_id,)
         )
         amount = self.cur.fetchone()[0]
 
@@ -245,15 +240,15 @@ class Database:
                     last_divs = soup.find_all('div', 'gallery')                   # First page uploads
                     known_uploads = [div.find('a')['href'] for div in last_divs]  # First page uploads' links
 
-                    # New link database insertion
+                    # New link database insertion and return inserted link's ID
                     self.cur.execute(
                         f'INSERT INTO Links (Link, Category, Name, LastCheck) '
-                        f'VALUES (%s, %s, %s, %s::timestamp);',
+                        f'VALUES (%s, %s, %s, %s) RETURNING ID;',
                         (link, category, name, datetime.now())
                     )
 
                     # Previous insert's incremental ID
-                    last_row_id = self.cur.lastrowid
+                    last_row_id = self.cur.fetchone()[0]
 
                     # Insert new follow rule: UserID <-> LinkID
                     self.cur.execute(
@@ -312,11 +307,13 @@ class Database:
         """
 
         # Get existing row data, if link_id exists and user_id is following it
-        exists = self.cur.execute(
+        self.cur.execute(
             f'SELECT L.Name '
             f'FROM Links as L INNER JOIN Follows as F on L.ID = F.LinkID '
-            f'WHERE F.ChatID = {user_id} AND L.ID = {link_id};'
-        ).fetchone()
+            f'WHERE F.ChatID = %s AND L.ID = %s;',
+            (user_id, link_id)
+        )
+        exists = self.cur.fetchone()
 
         # If it doesn't exist or user is not following it, return error
         if exists is None:
@@ -324,7 +321,8 @@ class Database:
 
         # Delete follow rule
         self.cur.execute(
-            f'DELETE FROM Follows WHERE ChatID = {user_id} AND LinkID = {link_id};'
+            f'DELETE FROM Follows WHERE ChatID = %s AND LinkID = %s;',
+            (user_id, link_id)
         )
 
         self.conn.commit()  # Commit changes
@@ -344,10 +342,12 @@ class Database:
         """
 
         # Get every setting's row containing user_id
-        results = self.cur.execute(
+        self.cur.execute(
             f'SELECT ID, Setting, Value '
-            f'FROM UserSettings WHERE ChatID = {user_id};'
+            f'FROM UserSettings WHERE ChatID = %s;',
+            (user_id,)
         )
+        results = self.cur.fetchall()
 
         settings_list = {}
 
@@ -376,17 +376,17 @@ class Database:
         """
 
         # Get existing row data, should exist
-        result = self.cur.execute(
-            f'SELECT Setting, Value FROM UserSettings WHERE ID = {setting_id} AND ChatID = {user_id} LIMIT 1;'
-        ).fetchone()
+        self.cur.execute(
+            f'SELECT Setting, Value FROM UserSettings WHERE ID = %s AND ChatID = %s LIMIT 1;',
+            (setting_id, user_id)
+        )
+        result = self.cur.fetchone()
 
         setting, values = result    # Unpack values
 
-        # if values is empty, init values = [] to avoid [''] (Empty string in the list)
-        if values == '' or values is None:
+        # if values is None, init values = []
+        if values is None:
             values = []
-        else:
-            values = values.split(',')  # Split different values, if something is present, on ','
 
         # Get corresponding setting's option name
         setting_name = self.available_settings_dictionary[setting]['ValueName'][value]
@@ -402,11 +402,10 @@ class Database:
             values.append(value)
             text += 'enabled'
 
-        values = ','.join(values)  # Pack different values
-
         # Update row cell
         self.cur.execute(
-            f'UPDATE UserSettings SET Value = \'{values}\' WHERE ID = {setting_id} AND ChatID = {user_id};'
+            f'UPDATE UserSettings SET Value = %s WHERE ID = %s AND ChatID = %s;',
+            (values, setting_id, user_id)
         )
 
         self.conn.commit()
@@ -421,10 +420,11 @@ class Database:
         """
 
         # Get every not sent message
-        results = self.cur.execute(
+        self.cur.execute(
             f'SELECT ID, ChatID, Content '
-            f'FROM Messages WHERE Sent == 0;'
+            f'FROM Messages WHERE Sent = FALSE;'
         )
+        results = self.cur.fetchall()
 
         messages = {}
 
@@ -451,7 +451,8 @@ class Database:
 
         # Update row cell
         self.cur.execute(
-            f'UPDATE Messages SET Sent = 1 WHERE ID = {message_id};'
+            f'UPDATE Messages SET Sent = TRUE, SentOn = %s WHERE ID = %s;',
+            (datetime.now(), message_id)
         )
 
         self.conn.commit()
@@ -645,8 +646,8 @@ class View:
                 current_setting = 'Nothing set'  # Current setting's value
 
                 # If the setting has values, change the text of current_setting
-                if setting_data['Value'] != '' and setting_data['Value'] is not None:
-                    values = setting_data['Value'].split(',')
+                if len(setting_data['Value']) != 0 and setting_data['Value'] is not None:
+                    values = setting_data['Value']
 
                     # Set values names list
                     value_names = [

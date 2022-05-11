@@ -13,14 +13,14 @@ Use the following commands:
 
 ### Limitations
 The amount of links that you can follow is limited. This choice was taken for two reasons:
-1. To discourage abusive uses. People who love to see the world burn :fire: can `/add` a massive amount of links,
+1. To discourage abusive behaviors. People who love to see the world burn :fire: can `/add` a massive amount of links,
 effectively clogging the bot and making it unusable/unstable.
 2. To "equally" distribute compute power among users. No user has advantages over another
 
 
 ### Future features
 Just a list of features I would like to implement:
-- [ ] Change from SQLite3 to PostgresSQL. Will fix [#7](https://github.com/brodo97/NotifyMeSenpai/issues/7)
+- [x] Switch from SQLite3 to PostgreSQL. Will fix [#7](https://github.com/brodo97/NotifyMeSenpai/issues/7)
 - [ ] Administration tools (Like /ban)
 - [ ] Logger to keep track of what the logic is doing
 - [ ] Tag/Character/Parody/Artist Leaderboard. What people follow the most
@@ -55,7 +55,7 @@ user
 I'm seeking bug reports and feature requests.
 
 # Other notes
-[Handy fix](https://github.com/PostgresApp/PostgresApp/issues/313#issuecomment-192461641) for PostgresSQL's error:
+[Handy fix](https://github.com/PostgresApp/PostgresApp/issues/313#issuecomment-192461641) for PostgreSQL's error:
 `psql: FATAL: role "USER" does not exist`
 
 # Donate

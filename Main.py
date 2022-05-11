@@ -290,7 +290,8 @@ if __name__ == "__main__":
                     bot.send_message(chat_id=user_id, text=message, parse_mode=MD)
                     VIEW.message_set_sent(message_id)
                 except:
-                    send_error_b(bot, ADMIN_ID, f"Error while sending message: **{message_id}**")
+                    send_error_b(bot, ADMIN_ID, f"Error while sending message: {message_id}")
+                time.sleep(0.5)
             time.sleep(3600)
     except (KeyboardInterrupt, SystemExit) as e:
         print(f"INTERRUPT: {e}")
