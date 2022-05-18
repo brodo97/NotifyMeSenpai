@@ -83,7 +83,7 @@ with requests.Session() as SESSION:
                     SleepTime = 0 if SleepTime < 0 else SleepTime
                 continue
 
-            time.sleep(2)  # Sleep 2 seconds for spam prevention
+            time.sleep(4)  # Sleep 2 seconds for spam prevention
 
             RESPONSE = SESSION.get(Link)  # Do a request to the link using current session
 
