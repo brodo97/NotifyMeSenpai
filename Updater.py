@@ -155,7 +155,7 @@ with requests.Session() as SESSION:
             except Exception:
                 # If there were pending transaction, rollback. Maybe it will upload at next cycle
                 if PendingTransaction is True:
-                    DB_CUR.execute('rollback')
+                    DB_CONN.rollback()
                 traceback.print_exc()
 
         time.sleep(SleepTime)

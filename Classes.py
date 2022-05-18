@@ -266,6 +266,7 @@ class Database:
 
                     return 1, f'You\'re now following [{name}]({link})'
                 except:
+                    self.conn.rollback()  # Rollback to avoid database locking
                     traceback.print_exc()
                     return -1, f'Error while parsing {link}\'s data'
 
