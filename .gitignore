@@ -4,3 +4,4 @@ Test.py
 venv
 data/Database.db
 data/Database.db.sql
+__pycache__/
