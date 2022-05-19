@@ -88,11 +88,16 @@ class Database:
         if limit is not None:
             return int(limit[0])
 
-        # Insert user into the database
-        self.cur.execute(
-            f'INSERT INTO Users (ID) VALUES (%s);',
-            (user_id,)
-        )
+        try:
+            # Insert user into the database
+            self.cur.execute(
+                f'INSERT INTO Users (ID) VALUES (%s);',
+                (user_id,)
+            )
+        except:
+            self.conn.rollback()  # Rollback to avoid database locking
+            traceback.print_exc()
+            return -1, f'Error while inserting user {user_id} ID into database'
 
         # Get settings list and other information
         self.cur.execute(
@@ -101,11 +106,16 @@ class Database:
         )
         results = self.cur.fetchall()
 
-        # Insert settings
-        self.cur.executemany(
-            f'INSERT INTO UserSettings (ChatID, Setting) VALUES (%s, %s);',
-            [(user_id, setting[0]) for setting in results]
-        )
+        try:
+            # Insert settings
+            self.cur.executemany(
+                f'INSERT INTO UserSettings (ChatID, Setting) VALUES (%s, %s);',
+                [(user_id, setting[0]) for setting in results]
+            )
+        except:
+            self.conn.rollback()  # Rollback to avoid database locking
+            traceback.print_exc()
+            return -1, f'Error while inserting new {user_id}\'s settings into database'
 
         self.conn.commit()  # Commit changes
 
@@ -230,7 +240,7 @@ class Database:
 
                 # If the response's status code differ from 200, return an error
                 if response.status_code != 200:
-                    return -1, f'Error while parsing {link}\'s data'
+                    return -1, f'Error while parsing link {link} data'
 
                 soup = BeautifulSoup(response.content, 'html.parser')  # Pass response's content to BeautifulSoup
 
@@ -268,7 +278,7 @@ class Database:
                 except:
                     self.conn.rollback()  # Rollback to avoid database locking
                     traceback.print_exc()
-                    return -1, f'Error while parsing {link}\'s data'
+                    return -1, f'Error while inserting link {link} data into database'
 
         # If the link exists in the database
         else:
@@ -287,11 +297,16 @@ class Database:
             if following is not None:
                 return 0, f'You\'re already following {category}: *{name}*'
             else:
-                # Update row cell
-                self.cur.execute(
-                    f'INSERT INTO Follows (ChatID, LinkID) VALUES (%s, %s)',
-                    (user_id, link_id)
-                )
+                try:
+                    # Update row cell
+                    self.cur.execute(
+                        f'INSERT INTO Follows (ChatID, LinkID) VALUES (%s, %s)',
+                        (user_id, link_id)
+                    )
+                except:
+                    self.conn.rollback()  # Rollback to avoid database locking
+                    traceback.print_exc()
+                    return -1, f'Error while inserting link {link} ID into database'
 
                 self.conn.commit()  # Commit changes
 
@@ -403,11 +418,16 @@ class Database:
             values.append(value)
             text += 'enabled'
 
-        # Update row cell
-        self.cur.execute(
-            f'UPDATE UserSettings SET Value = %s WHERE ID = %s AND ChatID = %s;',
-            (values, setting_id, user_id)
-        )
+        try:
+            # Update row cell
+            self.cur.execute(
+                f'UPDATE UserSettings SET Value = %s WHERE ID = %s AND ChatID = %s;',
+                (values, setting_id, user_id)
+            )
+        except:
+            self.conn.rollback()  # Rollback to avoid database locking
+            traceback.print_exc()
+            return -1, f'Error while updating user {user_id} settings'
 
         self.conn.commit()
 
@@ -450,11 +470,16 @@ class Database:
         :return: Nothing
         """
 
-        # Update row cell
-        self.cur.execute(
-            f'UPDATE Messages SET Sent = TRUE, SentOn = %s WHERE ID = %s;',
-            (datetime.now(), message_id)
-        )
+        try:
+            # Update row cell
+            self.cur.execute(
+                f'UPDATE Messages SET Sent = TRUE, SentOn = %s WHERE ID = %s;',
+                (datetime.now(), message_id)
+            )
+        except:
+            self.conn.rollback()  # Rollback to avoid database locking
+            traceback.print_exc()
+            return -1, f'Error while setting message {message_id} as sent'
 
         self.conn.commit()
 
