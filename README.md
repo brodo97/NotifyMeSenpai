@@ -1,4 +1,5 @@
-`NotifyMeSenpai` is a useful Telegram bot to stay up to date with your favourite nhentai Artists, Parodies, Tags,
+# NotifyMeSenpai
+is a useful Telegram bot to stay up to date with your favourite nhentai Artists, Parodies, Tags,
 Characters and Groups!
 
 ### How to use it
