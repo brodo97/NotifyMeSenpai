@@ -87,15 +87,15 @@ with requests.Session() as SESSION:
 
             RESPONSE = SESSION.get(Link)  # Do a request to the link using current session
 
+            # If the response's status code equal to 502, sleep for a while
+            if RESPONSE.status_code == 503:
+                print(f'ERROR: {Link} returned status code = 503. Sleeping for 1h')
+                time.sleep(3600)
+                continue
+
             # If the response's status code differ from 200, continue
             if RESPONSE.status_code != 200:
                 print(f'ERROR: {Link} returned status code = {RESPONSE.status_code}')
-                continue
-
-            # If the response's status code equal to 502, sleep for a while
-            if RESPONSE.status_code != 200:
-                print(f'ERROR: {Link} returned status code = {RESPONSE.status_code}. Sleeping for 1h')
-                time.sleep(3600)
                 continue
 
             SOUP = BeautifulSoup(RESPONSE.content, 'html.parser')  # Pass response's content to BeautifulSoup
