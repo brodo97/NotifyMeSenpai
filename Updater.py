@@ -92,6 +92,12 @@ with requests.Session() as SESSION:
                 print(f'ERROR: {Link} returned status code = {RESPONSE.status_code}')
                 continue
 
+            # If the response's status code equal to 502, sleep for a while
+            if RESPONSE.status_code != 200:
+                print(f'ERROR: {Link} returned status code = {RESPONSE.status_code}. Sleeping for 1h')
+                time.sleep(3600)
+                continue
+
             SOUP = BeautifulSoup(RESPONSE.content, 'html.parser')  # Pass response's content to BeautifulSoup
 
             # If response's content is malformed, continue
