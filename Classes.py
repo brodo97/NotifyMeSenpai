@@ -515,7 +515,7 @@ class View:
                f'\n/remove to remove it' \
                f'\n\nUse /settings to change some notification\'s parameter' \
                f'\n\nYou can follow up to *{amount}* links' \
-               f'\n\nIf you really like this bot, you can buy me a cup of coffee! https://www.paypal.me/notifymesenpai'
+               f'\n\nIf you really like this bot, you can buy me a cup of coffee! https://www.paypal.me/notifysenpai'
 
         return text
 
