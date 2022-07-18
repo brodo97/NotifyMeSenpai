@@ -1,6 +1,12 @@
+# The bot is currently not working
+
+For this [REASON](https://github.com/brodo97/NotifyMeSenpai/issues/13). If you know how to fix it, post a comment! 
+
+
 # NotifyMeSenpai
 is a useful Telegram bot to stay up to date with your favourite nhentai Artists, Parodies, Tags,
 Characters and Groups!
+
 
 ### How to use it
 Just subscribe to [NotifyMeSenpai](https://t.me/notifymesenpai_bot) and start playing around!
@@ -63,4 +69,4 @@ I'm seeking bug reports and feature requests.
 If this project helped you, you can buy me a beer or a cup of coffee! :wink:
 
 [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](
-https://www.paypal.me/notifymesenpai)
+https://www.paypal.me/notifysenpai)
