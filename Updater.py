@@ -1,4 +1,3 @@
-import sqlite3
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
