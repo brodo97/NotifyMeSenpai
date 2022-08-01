@@ -86,7 +86,7 @@ with requests.Session() as SESSION:
 
             RESPONSE = SESSION.get(Link)  # Do a request to the link using current session
 
-            # If the response's status code equal to 502, sleep for a while
+            # If the response's status code equal to 503, sleep for a while
             if RESPONSE.status_code == 503:
                 print(f'ERROR: {Link} returned status code = 503. Sleeping for 1h')
                 time.sleep(3600)
