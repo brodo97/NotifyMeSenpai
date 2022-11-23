@@ -34,7 +34,7 @@ Just a list of features I would like to implement:
 - [ ] Ideas... ?
 
 ### Current state of the project
-The bot works well. All the things like the structure, classes and other files are a bit of a mess.
+~The bot works well.~ All the things like the structure, classes and other files are a bit of a mess.
 I'm still learning, but I'd like the project to be as much [PEP](https://peps.python.org/) compliant as possible
 
 
